@@ -1,0 +1,38 @@
+<Application
+    x:Class="Xelite.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- No RequestedTheme: follows the phone's light/dark setting and accent colour, like built-in apps. -->
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Default">
+                    <SolidColorBrush x:Key="XeliteAccent" Color="{ThemeResource SystemAccentColor}" />
+                    <SolidColorBrush x:Key="XeliteConnected" Color="#FF339933" />
+                    <SolidColorBrush x:Key="XeliteTileForeground" Color="White" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="XeliteAccent" Color="{ThemeResource SystemAccentColor}" />
+                    <SolidColorBrush x:Key="XeliteConnected" Color="#FF339933" />
+                    <SolidColorBrush x:Key="XeliteTileForeground" Color="White" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <!-- Metro list typography -->
+            <Style x:Key="ItemTitle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="22" />
+                <Setter Property="FontWeight" Value="SemiLight" />
+                <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            </Style>
+            <Style x:Key="ItemSubtitle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="Foreground" Value="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+                <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            </Style>
+            <Style x:Key="SectionLabel" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="15" />
+                <Setter Property="Foreground" Value="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+            </Style>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

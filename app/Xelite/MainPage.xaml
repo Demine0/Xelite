@@ -1,0 +1,197 @@
+<Page
+    x:Class="Xelite.MainPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Page.BottomAppBar>
+        <CommandBar>
+            <AppBarButton Icon="Add" Label="subscription" Click="AddSubscription_Click" />
+            <AppBarButton Icon="Paste" Label="paste" Click="Paste_Click" />
+            <AppBarButton Icon="Refresh" Label="update all" Click="UpdateAll_Click" />
+            <AppBarButton Label="ping" Click="Ping_Click">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE916;" />
+                </AppBarButton.Icon>
+            </AppBarButton>
+            <CommandBar.SecondaryCommands>
+                <AppBarButton Label="show log" Click="ShowLog_Click" />
+                <AppBarButton Label="clear log" Click="ClearLog_Click" />
+            </CommandBar.SecondaryCommands>
+        </CommandBar>
+    </Page.BottomAppBar>
+
+    <Grid>
+        <Pivot x:Name="MainPivot" Title="XELITE">
+
+            <!-- ===== home ===== -->
+            <PivotItem Header="home">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock x:Name="StatusText" Text="disconnected" FontSize="56" FontWeight="Light"
+                                   Margin="0,-8,0,0" TextWrapping="Wrap" />
+                        <TextBlock x:Name="SelectedText" Text="no server selected" Style="{StaticResource ItemSubtitle}"
+                                   FontSize="18" TextWrapping="Wrap" Margin="0,0,0,24" />
+
+                        <StackPanel Orientation="Horizontal">
+                            <!-- Connect tile -->
+                            <Button x:Name="ConnectButton" Width="150" Height="150" Padding="0" BorderThickness="0"
+                                    Background="{ThemeResource XeliteAccent}" Click="Connect_Click">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Grid x:Name="Root" Background="{TemplateBinding Background}" RenderTransformOrigin="0.5,0.5">
+                                            <VisualStateManager.VisualStateGroups>
+                                                <VisualStateGroup x:Name="CommonStates">
+                                                    <VisualState x:Name="Normal" />
+                                                    <VisualState x:Name="PointerOver" />
+                                                    <VisualState x:Name="Pressed">
+                                                        <VisualState.Setters>
+                                                            <Setter Target="Scale.ScaleX" Value="0.96" />
+                                                            <Setter Target="Scale.ScaleY" Value="0.96" />
+                                                        </VisualState.Setters>
+                                                    </VisualState>
+                                                    <VisualState x:Name="Disabled">
+                                                        <VisualState.Setters>
+                                                            <Setter Target="Root.Opacity" Value="0.5" />
+                                                        </VisualState.Setters>
+                                                    </VisualState>
+                                                </VisualStateGroup>
+                                            </VisualStateManager.VisualStateGroups>
+                                            <Grid.RenderTransform>
+                                                <ScaleTransform x:Name="Scale" />
+                                            </Grid.RenderTransform>
+                                            <ContentPresenter />
+                                        </Grid>
+                                    </ControlTemplate>
+                                </Button.Template>
+                                <Grid Width="150" Height="150">
+                                    <FontIcon x:Name="ConnectIcon" Glyph="&#xE7E8;" FontSize="48"
+                                              Foreground="{ThemeResource XeliteTileForeground}"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,0,16" />
+                                    <TextBlock x:Name="ConnectLabel" Text="connect" Foreground="{ThemeResource XeliteTileForeground}"
+                                               FontSize="15" Margin="10,0,0,8" VerticalAlignment="Bottom" />
+                                </Grid>
+                            </Button>
+
+                            <!-- Info tile -->
+                            <Border Width="150" Height="150" Margin="10,0,0,0"
+                                    Background="{ThemeResource SystemControlBackgroundBaseLowBrush}">
+                                <Grid Padding="10,8">
+                                    <StackPanel>
+                                        <TextBlock x:Name="ServerCountText" Text="0" FontSize="48" FontWeight="Light" />
+                                        <TextBlock Text="servers" FontSize="15" />
+                                    </StackPanel>
+                                    <TextBlock x:Name="ModeText" Text="" FontSize="13" VerticalAlignment="Bottom"
+                                               TextWrapping="Wrap" Style="{StaticResource ItemSubtitle}" />
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+
+                        <TextBlock x:Name="TrafficText" Style="{StaticResource ItemSubtitle}" TextWrapping="Wrap"
+                                   Margin="0,24,0,0" />
+                        <ProgressBar x:Name="Busy" IsIndeterminate="True" Visibility="Collapsed" Margin="0,16,0,0" />
+                    </StackPanel>
+                </ScrollViewer>
+            </PivotItem>
+
+            <!-- ===== servers ===== -->
+            <PivotItem Header="servers">
+                <Grid>
+                    <ListView x:Name="ServerList" IsItemClickEnabled="True" ItemClick="ServerList_ItemClick"
+                              SelectionMode="None">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <Setter Property="Padding" Value="0" />
+                            </Style>
+                        </ListView.ItemContainerStyle>
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Padding="0,6" Holding="ServerItem_Holding" RightTapped="ServerItem_RightTapped"
+                                      Background="Transparent">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="6" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Rectangle Fill="{ThemeResource XeliteAccent}" Opacity="{Binding MarkerOpacity}" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Glyph}" FontFamily="Segoe MDL2 Assets"
+                                               FontSize="20" Foreground="{ThemeResource XeliteAccent}"
+                                               VerticalAlignment="Center" Margin="12,0,0,0" />
+                                    <StackPanel Grid.Column="2" Margin="12,0,8,0">
+                                        <TextBlock Text="{Binding Name}" Style="{StaticResource ItemTitle}" />
+                                        <TextBlock Text="{Binding Detail}" Style="{StaticResource ItemSubtitle}" />
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="3" Text="{Binding Ping}" VerticalAlignment="Center"
+                                               Style="{StaticResource ItemSubtitle}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                    <TextBlock x:Name="EmptyHint" TextWrapping="Wrap" Style="{StaticResource ItemSubtitle}"
+                               FontSize="18" Margin="0,12,0,0"
+                               Text="tap + to add a subscription, or copy a link (https://, vless://, vmess://, trojan://, ss://, hysteria2://, happ://add/…) and tap paste." />
+                </Grid>
+            </PivotItem>
+
+            <!-- ===== subscriptions ===== -->
+            <PivotItem Header="subscriptions">
+                <ListView x:Name="SubscriptionList" SelectionMode="None" IsItemClickEnabled="True"
+                          ItemClick="SubscriptionList_ItemClick">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Padding" Value="0" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Padding="0,8">
+                                <TextBlock Text="{Binding Name}" Style="{StaticResource ItemTitle}" />
+                                <TextBlock Text="{Binding Summary}" Style="{StaticResource ItemSubtitle}" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding Url}" Style="{StaticResource ItemSubtitle}" FontSize="12" Opacity="0.6" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </PivotItem>
+
+            <!-- ===== settings ===== -->
+            <PivotItem Header="settings">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <ComboBox x:Name="BalancerBox" Header="auto server selection" Margin="0,0,0,4"
+                                  HorizontalAlignment="Stretch" SelectionChanged="Settings_Changed">
+                            <ComboBoxItem Content="least ping — lowest latency" Tag="leastPing" />
+                            <ComboBoxItem Content="least load — most stable" Tag="leastLoad" />
+                        </ComboBox>
+                        <TextBlock Style="{StaticResource ItemSubtitle}" TextWrapping="Wrap" Margin="0,0,0,16"
+                                   Text="the auto entry of a subscription probes every server once a minute and switches automatically." />
+
+                        <ToggleSwitch x:Name="BypassLanSwitch" Header="bypass local network" Toggled="Settings_Changed" />
+                        <ToggleSwitch x:Name="BlockQuicSwitch" Header="block QUIC (UDP 443)" Toggled="Settings_Changed" />
+                        <ToggleSwitch x:Name="UpdateOnStartSwitch" Header="update subscriptions on start"
+                                      Toggled="Settings_Changed" />
+
+                        <TextBox x:Name="DnsBox" Header="DNS servers" Margin="0,8,0,12" LostFocus="Settings_Changed" />
+                        <TextBox x:Name="MtuBox" Header="MTU" InputScope="Number" Margin="0,0,0,12"
+                                 LostFocus="Settings_Changed" />
+                        <TextBox x:Name="UserAgentBox" Header="subscription user-agent" Margin="0,0,0,12"
+                                 LostFocus="Settings_Changed" />
+                        <ComboBox x:Name="LogLevelBox" Header="xray log level" Margin="0,0,0,12"
+                                  HorizontalAlignment="Stretch" SelectionChanged="Settings_Changed">
+                            <x:String>none</x:String>
+                            <x:String>error</x:String>
+                            <x:String>warning</x:String>
+                            <x:String>info</x:String>
+                            <x:String>debug</x:String>
+                        </ComboBox>
+                        <TextBlock x:Name="AboutText" TextWrapping="Wrap" Style="{StaticResource ItemSubtitle}"
+                                   Margin="0,16,0,24" />
+                    </StackPanel>
+                </ScrollViewer>
+            </PivotItem>
+        </Pivot>
+    </Grid>
+</Page>

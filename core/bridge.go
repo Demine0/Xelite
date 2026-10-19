@@ -1,0 +1,276 @@
+package main
+
+import (
+	"context"
+	"io"
+	stdnet "net"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/xtls/xray-core/common/errors"
+	xnet "github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/common/session"
+	"github.com/xtls/xray-core/core"
+	"gvisor.dev/gvisor/pkg/buffer"
+	"gvisor.dev/gvisor/pkg/tcpip"
+	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
+	"gvisor.dev/gvisor/pkg/tcpip/header"
+	"gvisor.dev/gvisor/pkg/tcpip/link/channel"
+	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
+	"gvisor.dev/gvisor/pkg/tcpip/network/ipv6"
+	"gvisor.dev/gvisor/pkg/tcpip/stack"
+	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
+	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
+	"gvisor.dev/gvisor/pkg/waiter"
+)
+
+const (
+	nicID = 1
+
+	// InboundTag is visible to Xray routing rules ("inboundTag": ["tun"]).
+	InboundTag = "tun"
+
+	udpIdleTimeout = 60 * time.Second
+	dnsIdleTimeout = 15 * time.Second
+)
+
+// bridge moves raw IP packets between the VPN plug-in (over loopback UDP)
+// and a gVisor stack whose TCP/UDP flows are dispatched into Xray.
+type bridge struct {
+	inst   *core.Instance
+	conn   *stdnet.UDPConn
+	peer   atomic.Pointer[stdnet.UDPAddr]
+	ep     *channel.Endpoint
+	stack  *stack.Stack
+	ctx    context.Context
+	cancel context.CancelFunc
+	once   sync.Once
+}
+
+func newBridge(inst *core.Instance, port int, mtu uint32) (*bridge, error) {
+	conn, err := stdnet.ListenUDP("udp4", &stdnet.UDPAddr{IP: stdnet.IPv4(127, 0, 0, 1), Port: port})
+	if err != nil {
+		return nil, err
+	}
+	_ = conn.SetReadBuffer(4 << 20)
+	_ = conn.SetWriteBuffer(4 << 20)
+
+	ep := channel.New(1024, mtu, "")
+	s, err := createStack(ep)
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	b := &bridge{inst: inst, conn: conn, ep: ep, stack: s, ctx: ctx, cancel: cancel}
+
+	tcpForwarder := tcp.NewForwarder(s, 0, 2048, b.handleTCP)
+	s.SetTransportProtocolHandler(tcp.ProtocolNumber, tcpForwarder.HandlePacket)
+	udpForwarder := udp.NewForwarder(s, b.handleUDP)
+	s.SetTransportProtocolHandler(udp.ProtocolNumber, udpForwarder.HandlePacket)
+
+	go b.readLoop()
+	go b.writeLoop()
+	return b, nil
+}
+
+func createStack(ep stack.LinkEndpoint) (*stack.Stack, error) {
+	s := stack.New(stack.Options{
+		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol, ipv6.NewProtocol},
+		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol},
+	})
+	if err := s.CreateNIC(nicID, ep); err != nil {
+		return nil, errors.New(err.String())
+	}
+	s.SetRouteTable([]tcpip.Route{
+		{Destination: header.IPv4EmptySubnet, NIC: nicID},
+		{Destination: header.IPv6EmptySubnet, NIC: nicID},
+	})
+	// Accept packets for any destination and answer from any address.
+	if err := s.SetSpoofing(nicID, true); err != nil {
+		return nil, errors.New(err.String())
+	}
+	if err := s.SetPromiscuousMode(nicID, true); err != nil {
+		return nil, errors.New(err.String())
+	}
+	sack := tcpip.TCPSACKEnabled(true)
+	s.SetTransportProtocolOption(tcp.ProtocolNumber, &sack)
+	cc := tcpip.CongestionControlOption("cubic")
+	s.SetTransportProtocolOption(tcp.ProtocolNumber, &cc)
+	// Keep buffers modest: the VPN background task host has a small
+	// memory budget on phones.
+	rcv := tcpip.TCPReceiveBufferSizeRangeOption{Min: tcp.MinBufferSize, Default: tcp.DefaultReceiveBufferSize, Max: 2 << 20}
+	s.SetTransportProtocolOption(tcp.ProtocolNumber, &rcv)
+	snd := tcpip.TCPSendBufferSizeRangeOption{Min: tcp.MinBufferSize, Default: tcp.DefaultSendBufferSize, Max: 2 << 20}
+	s.SetTransportProtocolOption(tcp.ProtocolNumber, &snd)
+	return s, nil
+}
+
+// readLoop takes packets from the VPN plug-in and injects them into the stack.
+func (b *bridge) readLoop() {
+	buf := make([]byte, 65535)
+	for {
+		n, addr, err := b.conn.ReadFromUDP(buf)
+		if err != nil {
+			if b.ctx.Err() != nil {
+				return
+			}
+			continue
+		}
+		b.peer.Store(addr)
+		if n < header.IPv4MinimumSize {
+			continue // keep-alive / hello datagram
+		}
+		var proto tcpip.NetworkProtocolNumber
+		switch header.IPVersion(buf[:n]) {
+		case header.IPv4Version:
+			proto = header.IPv4ProtocolNumber
+		case header.IPv6Version:
+			proto = header.IPv6ProtocolNumber
+		default:
+			continue
+		}
+		pkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
+			Payload: buffer.MakeWithData(append([]byte(nil), buf[:n]...)),
+		})
+		b.ep.InjectInbound(proto, pkt)
+		pkt.DecRef()
+	}
+}
+
+// writeLoop sends packets produced by the stack back to the VPN plug-in.
+func (b *bridge) writeLoop() {
+	for {
+		pkt := b.ep.ReadContext(b.ctx)
+		if pkt == nil {
+			return
+		}
+		v := pkt.ToBuffer()
+		data := v.Flatten()
+		v.Release()
+		pkt.DecRef()
+		if peer := b.peer.Load(); peer != nil {
+			_, _ = b.conn.WriteToUDP(data, peer)
+		}
+	}
+}
+
+func (b *bridge) flowContext(src xnet.Destination) context.Context {
+	ctx := session.ContextWithInbound(b.ctx, &session.Inbound{Source: src, Tag: InboundTag, Name: "tun"})
+	return session.ContextWithContent(ctx, &session.Content{
+		SniffingRequest: session.SniffingRequest{
+			Enabled:                        true,
+			OverrideDestinationForProtocol: []string{"http", "tls", "quic"},
+			RouteOnly:                      true,
+		},
+	})
+}
+
+func (b *bridge) handleTCP(r *tcp.ForwarderRequest) {
+	id := r.ID()
+	var wq waiter.Queue
+	ep, terr := r.CreateEndpoint(&wq)
+	if terr != nil {
+		r.Complete(true)
+		return
+	}
+	r.Complete(false)
+	ep.SocketOptions().SetKeepAlive(true)
+	local := gonet.NewTCPConn(&wq, ep)
+
+	src := xnet.TCPDestination(xnet.IPAddress(id.RemoteAddress.AsSlice()), xnet.Port(id.RemotePort))
+	dst := xnet.TCPDestination(xnet.IPAddress(id.LocalAddress.AsSlice()), xnet.Port(id.LocalPort))
+	go func() {
+		defer local.Close()
+		remote, err := core.Dial(b.flowContext(src), b.inst, dst)
+		if err != nil {
+			errors.LogInfo(b.ctx, "tun: dial ", dst, " failed: ", err)
+			return
+		}
+		defer remote.Close()
+		done := make(chan struct{}, 2)
+		go func() {
+			_, _ = io.Copy(remote, local)
+			done <- struct{}{}
+		}()
+		go func() {
+			_, _ = io.Copy(local, remote)
+			local.CloseWrite()
+			done <- struct{}{}
+		}()
+		<-done
+		<-done
+	}()
+}
+
+func (b *bridge) handleUDP(r *udp.ForwarderRequest) bool {
+	id := r.ID()
+	var wq waiter.Queue
+	ep, terr := r.CreateEndpoint(&wq)
+	if terr != nil {
+		return true
+	}
+	local := gonet.NewUDPConn(&wq, ep)
+
+	src := xnet.UDPDestination(xnet.IPAddress(id.RemoteAddress.AsSlice()), xnet.Port(id.RemotePort))
+	dst := xnet.UDPDestination(xnet.IPAddress(id.LocalAddress.AsSlice()), xnet.Port(id.LocalPort))
+	timeout := udpIdleTimeout
+	if id.LocalPort == 53 {
+		timeout = dnsIdleTimeout
+	}
+	go func() {
+		defer local.Close()
+		ctx, cancel := context.WithCancel(b.flowContext(src))
+		defer cancel()
+		remote, err := core.Dial(ctx, b.inst, dst)
+		if err != nil {
+			errors.LogInfo(b.ctx, "tun: dial ", dst, " failed: ", err)
+			return
+		}
+		defer remote.Close()
+
+		idle := time.AfterFunc(timeout, func() {
+			local.Close()
+			remote.Close()
+		})
+		defer idle.Stop()
+
+		go func() {
+			buf := make([]byte, 65535)
+			for {
+				n, err := remote.Read(buf)
+				if err != nil {
+					local.Close()
+					return
+				}
+				idle.Reset(timeout)
+				if _, err := local.Write(buf[:n]); err != nil {
+					return
+				}
+			}
+		}()
+		buf := make([]byte, 65535)
+		for {
+			n, err := local.Read(buf)
+			if err != nil {
+				return
+			}
+			idle.Reset(timeout)
+			if _, err := remote.Write(buf[:n]); err != nil {
+				return
+			}
+		}
+	}()
+	return true
+}
+
+func (b *bridge) Close() {
+	b.once.Do(func() {
+		b.cancel()
+		b.conn.Close()
+		b.ep.Close()
+		b.stack.Close()
+	})
+}

@@ -1,0 +1,67 @@
+// xelite-core is the network engine of Xelite for Windows 10 Mobile.
+//
+// It runs an Xray-core instance and a userspace TCP/IP stack (gVisor).
+// The UWP VPN plug-in forwards every IP packet captured by the system VPN
+// interface to this process as a single UDP datagram on 127.0.0.1:<port>,
+// and receives reply packets the same way.
+package main
+
+import (
+	"flag"
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"github.com/xtls/xray-core/core"
+	_ "github.com/xtls/xray-core/main/distro/all"
+)
+
+func main() {
+	configPath := flag.String("config", "config.json", "path to Xray JSON config")
+	port := flag.Int("port", 10808, "loopback UDP port used for the packet bridge")
+	mtu := flag.Int("mtu", 1500, "MTU of the VPN interface")
+	statusPath := flag.String("status", "", "file to write startup status to")
+	ppid := flag.Int("ppid", 0, "exit when the process with this PID exits")
+	flag.Parse()
+
+	writeStatus := func(s string) {
+		if *statusPath != "" {
+			_ = os.WriteFile(*statusPath, []byte(s), 0o644)
+		}
+	}
+	fail := func(err error) {
+		writeStatus("error: " + err.Error())
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	cfg, err := os.ReadFile(*configPath)
+	if err != nil {
+		fail(err)
+	}
+	inst, err := core.StartInstance("json", cfg)
+	if err != nil {
+		fail(err)
+	}
+	defer inst.Close()
+
+	b, err := newBridge(inst, *port, uint32(*mtu))
+	if err != nil {
+		fail(err)
+	}
+	defer b.Close()
+	writeStatus("ready")
+
+	if *ppid != 0 {
+		go func() {
+			if waitForProcess(*ppid) {
+				os.Exit(0)
+			}
+		}()
+	}
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	<-sig
+}

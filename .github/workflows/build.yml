@@ -1,0 +1,28 @@
+name: build
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  appx:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.14"
+          cache-dependency-path: core/go.sum
+      - name: Build xelite-core (ARM + x64)
+        shell: bash
+        run: ./build-core.sh
+      - name: Build appx (ARM)
+        shell: pwsh
+        run: ./build.ps1 -Platform ARM
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xelite-arm
+          path: |
+            dist/**/*.appx
+            dist/**/*.cer
+            dist/**/Dependencies/ARM/*.appx

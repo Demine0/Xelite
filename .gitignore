@@ -1,0 +1,11 @@
+.toolchain/
+build/
+dist/
+bin/
+obj/
+*.user
+.vs/
+AppPackages/
+BundleArtifacts/
+*.pfx
+project.lock.json
