@@ -94,6 +94,9 @@ func newBridge(inst *core.Instance, port int, mtu uint32, rejectIPv6 bool) (*bri
 	_ = conn.SetWriteBuffer(4 << 20)
 
 	ep := channel.New(1024, mtu, "")
+	// Windows' VPN interface hands over packets with TCP/UDP checksums left for
+	// offload (not filled in). Don't verify them, or every SYN is dropped.
+	ep.LinkEPCapabilities |= stack.CapabilityRXChecksumOffload
 	s, err := createStack(ep)
 	if err != nil {
 		conn.Close()
@@ -165,6 +168,7 @@ func (b *bridge) readLoop() {
 		}
 		b.stats.pktIn.Add(1)
 		b.stats.bytesIn.Add(uint64(n))
+		b.stats.sample(buf[:n])
 		var proto tcpip.NetworkProtocolNumber
 		switch header.IPVersion(buf[:n]) {
 		case header.IPv4Version:
@@ -197,6 +201,8 @@ func (b *bridge) writeLoop() {
 			if _, err := b.conn.WriteToUDP(data, peer); err == nil {
 				b.stats.pktOut.Add(1)
 				b.stats.bytesOut.Add(uint64(len(data)))
+			} else {
+				b.stats.writeFailed(peer, err)
 			}
 		}
 	}
