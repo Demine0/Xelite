@@ -90,6 +90,43 @@ namespace Xelite.Core
         }
 
         public static string StatePath => Path.Combine(DataDir, "vpn.state");
+        public static string StatsPath => Path.Combine(DataDir, "core.stats");
+
+        /// <summary>Counters written by xelite-core every second ("key=value ..."), empty if none.</summary>
+        public static Dictionary<string, long> ReadStats()
+        {
+            var result = new Dictionary<string, long>();
+            var text = ReadTail(StatsPath, 2000);
+            var firstLine = text.Split('\n')[0];
+            foreach (var part in firstLine.Split(' '))
+            {
+                var kv = part.Split('=');
+                long v;
+                if (kv.Length == 2 && long.TryParse(kv[1], out v))
+                {
+                    result[kv[0]] = v;
+                }
+            }
+            return result;
+        }
+
+        /// <summary>Public IP and country as seen by a web service, through whatever route Windows picks.</summary>
+        public static async Task<string> CheckPublicIpAsync()
+        {
+            var filter = new Windows.Web.Http.Filters.HttpBaseProtocolFilter();
+            filter.CacheControl.ReadBehavior = Windows.Web.Http.Filters.HttpCacheReadBehavior.MostRecent;
+            filter.CacheControl.WriteBehavior = Windows.Web.Http.Filters.HttpCacheWriteBehavior.NoCache;
+            using (var client = new Windows.Web.Http.HttpClient(filter))
+            {
+                var get = client.GetStringAsync(new Uri("http://ip-api.com/json/?fields=query,country,isp")).AsTask();
+                if (await Task.WhenAny(get, Task.Delay(8000)) != get)
+                {
+                    throw new TimeoutException("no answer in 8 seconds");
+                }
+                var json = JsonObject.Parse(await get);
+                return json.GetNamedString("query", "?") + " · " + json.GetNamedString("country", "") + " · " + json.GetNamedString("isp", "");
+            }
+        }
 
         private static string ReadState()
         {
@@ -173,6 +210,7 @@ namespace Xelite.Core
                 ["mtu"] = JsonValue.CreateNumberValue(settings.Mtu),
                 ["port"] = JsonValue.CreateNumberValue(0),
                 ["bypassLan"] = JsonValue.CreateBooleanValue(settings.BypassLan),
+                ["ipv6"] = JsonValue.CreateBooleanValue(settings.AllowIpv6),
                 ["dns"] = dns,
                 ["exclude"] = exclude,
             };
@@ -188,6 +226,7 @@ namespace Xelite.Core
             try
             {
                 File.Delete(StatePath);
+                File.Delete(StatsPath);
             }
             catch (Exception)
             {
@@ -401,7 +440,7 @@ namespace Xelite.Core
             var tempPluginLog = Path.Combine(ApplicationData.Current.TemporaryFolder.Path, "vpn.log");
             return "--- app ---" + Environment.NewLine + ReadTail(AppLogPath, 3000) + Environment.NewLine +
                    "--- vpn plug-in ---" + Environment.NewLine + ReadTail(PluginLogPath, 4000) + ReadTail(tempPluginLog, 2000) + Environment.NewLine +
-                   "--- traffic ---" + Environment.NewLine + ReadTail(Path.Combine(DataDir, "core.stats"), 1000) + Environment.NewLine +
+                   "--- traffic ---" + Environment.NewLine + ReadTail(StatsPath, 1000) + Environment.NewLine +
                    "--- xray ---" + Environment.NewLine + ReadTail(XrayLogPath, 12000);
         }
 

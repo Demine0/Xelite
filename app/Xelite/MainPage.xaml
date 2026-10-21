@@ -88,8 +88,40 @@
                             </Border>
                         </StackPanel>
 
+                        <!-- Live traffic through the tunnel (from xelite-core's counters) -->
+                        <Grid Margin="0,24,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="upload" Style="{StaticResource SectionLabel}" />
+                                <TextBlock x:Name="UpText" Text="0 B" FontSize="32" FontWeight="Light" />
+                                <TextBlock x:Name="UpSpeedText" Text="0 B/s" Style="{StaticResource ItemSubtitle}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="download" Style="{StaticResource SectionLabel}" />
+                                <TextBlock x:Name="DownText" Text="0 B" FontSize="32" FontWeight="Light" />
+                                <TextBlock x:Name="DownSpeedText" Text="0 B/s" Style="{StaticResource ItemSubtitle}" />
+                            </StackPanel>
+                        </Grid>
+                        <TextBlock x:Name="FlowsText" Style="{StaticResource ItemSubtitle}" TextWrapping="Wrap"
+                                   Margin="0,8,0,0" />
+
+                        <Grid Margin="0,20,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="public IP" Style="{StaticResource SectionLabel}" />
+                                <TextBlock x:Name="IpText" Text="tap check" TextWrapping="Wrap" FontSize="16" />
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="check" MinWidth="90" Click="CheckIp_Click" />
+                        </Grid>
+
                         <TextBlock x:Name="TrafficText" Style="{StaticResource ItemSubtitle}" TextWrapping="Wrap"
-                                   Margin="0,24,0,0" />
+                                   Margin="0,20,0,0" />
                         <ProgressBar x:Name="Busy" IsIndeterminate="True" Visibility="Collapsed" Margin="0,16,0,0" />
                     </StackPanel>
                 </ScrollViewer>
@@ -172,6 +204,9 @@
 
                         <ToggleSwitch x:Name="BypassLanSwitch" Header="bypass local network" Toggled="Settings_Changed" />
                         <ToggleSwitch x:Name="BlockQuicSwitch" Header="block QUIC (UDP 443)" Toggled="Settings_Changed" />
+                        <ToggleSwitch x:Name="Ipv6Switch" Header="IPv6 through the proxy" Toggled="Settings_Changed" />
+                        <TextBlock Style="{StaticResource ItemSubtitle}" TextWrapping="Wrap" Margin="0,-4,0,12"
+                                   Text="off: IPv6 is blocked so it can't leak past the VPN, and apps use IPv4. turn on only if your server has IPv6." />
                         <ToggleSwitch x:Name="UpdateOnStartSwitch" Header="update subscriptions on start"
                                       Toggled="Settings_Changed" />
 

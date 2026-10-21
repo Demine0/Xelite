@@ -24,6 +24,7 @@ func main() {
 	statusPath := flag.String("status", "", "file to write startup status to")
 	statsPath := flag.String("stats", "", "file to write traffic counters to every few seconds")
 	ppid := flag.Int("ppid", 0, "exit when the process with this PID exits")
+	allowIPv6 := flag.Bool("ipv6", false, "proxy IPv6 flows instead of rejecting them")
 	flag.Parse()
 
 	writeStatus := func(s string) {
@@ -47,7 +48,7 @@ func main() {
 	}
 	defer inst.Close()
 
-	b, err := newBridge(inst, *port, uint32(*mtu))
+	b, err := newBridge(inst, *port, uint32(*mtu), !*allowIPv6)
 	if err != nil {
 		fail(err)
 	}

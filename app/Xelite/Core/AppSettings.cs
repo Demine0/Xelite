@@ -34,6 +34,13 @@ namespace Xelite.Core
             set { Values.Values["balancer"] = value; }
         }
 
+        /// <summary>Proxy IPv6 traffic instead of rejecting it (the server must have IPv6).</summary>
+        public bool AllowIpv6
+        {
+            get { return Get("ipv6", false); }
+            set { Values.Values["ipv6"] = value; }
+        }
+
         public bool UpdateOnStart
         {
             get { return Get("updateOnStart", true); }

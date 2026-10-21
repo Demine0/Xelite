@@ -47,9 +47,12 @@ type bridge struct {
 	cancel context.CancelFunc
 	once   sync.Once
 	stats  stats
+
+	// rejectIPv6 refuses IPv6 flows captured by the tunnel (leak protection).
+	rejectIPv6 bool
 }
 
-func newBridge(inst *core.Instance, port int, mtu uint32) (*bridge, error) {
+func newBridge(inst *core.Instance, port int, mtu uint32, rejectIPv6 bool) (*bridge, error) {
 	conn, err := stdnet.ListenUDP("udp4", &stdnet.UDPAddr{IP: stdnet.IPv4(127, 0, 0, 1), Port: port})
 	if err != nil {
 		return nil, err
@@ -65,7 +68,7 @@ func newBridge(inst *core.Instance, port int, mtu uint32) (*bridge, error) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	b := &bridge{inst: inst, conn: conn, ep: ep, stack: s, ctx: ctx, cancel: cancel}
+	b := &bridge{inst: inst, conn: conn, ep: ep, stack: s, ctx: ctx, cancel: cancel, rejectIPv6: rejectIPv6}
 
 	tcpForwarder := tcp.NewForwarder(s, 0, 2048, b.handleTCP)
 	s.SetTransportProtocolHandler(tcp.ProtocolNumber, tcpForwarder.HandlePacket)
@@ -176,6 +179,13 @@ func (b *bridge) flowContext(src xnet.Destination) context.Context {
 
 func (b *bridge) handleTCP(r *tcp.ForwarderRequest) {
 	id := r.ID()
+	if b.rejectIPv6 && id.LocalAddress.Len() == 16 {
+		// Reset at once so apps fall back to IPv4 (which goes through Xray)
+		// instead of leaking over the Wi-Fi's IPv6 route.
+		b.stats.ipv6Rejected.Add(1)
+		r.Complete(true)
+		return
+	}
 	var wq waiter.Queue
 	ep, terr := r.CreateEndpoint(&wq)
 	if terr != nil {
@@ -215,6 +225,10 @@ func (b *bridge) handleTCP(r *tcp.ForwarderRequest) {
 
 func (b *bridge) handleUDP(r *udp.ForwarderRequest) bool {
 	id := r.ID()
+	if b.rejectIPv6 && id.LocalAddress.Len() == 16 {
+		b.stats.ipv6Rejected.Add(1)
+		return true // dropped
+	}
 	var wq waiter.Queue
 	ep, terr := r.CreateEndpoint(&wq)
 	if terr != nil {

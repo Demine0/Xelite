@@ -26,6 +26,9 @@ namespace Xelite
         private List<Subscription> _model = new List<Subscription>();
         private VpnManagementConnectionStatus _status = VpnManagementConnectionStatus.Disconnected;
         private Brush _accentBrush;
+        private long _lastUp = -1;
+        private long _lastDown = -1;
+        private DateTime _lastSample;
         private bool _loadingSettings;
 
         public MainPage()
@@ -355,6 +358,10 @@ namespace Xelite
                 return;
             }
             await RunBusyAsync(() => VpnService.ConnectAsync(server.Links));
+            if (_status == VpnManagementConnectionStatus.Connected)
+            {
+                await CheckIpAsync();
+            }
         }
 
         private async Task RefreshStatusAsync()
@@ -384,7 +391,63 @@ namespace Xelite
                     break;
             }
             ConnectLabel.Text = connected || _status == VpnManagementConnectionStatus.Connecting ? "disconnect" : "connect";
+            UpdateTraffic(connected);
             ConnectButton.Background = connected ? ConnectedBrush : _accentBrush;
+        }
+
+        /// <summary>Shows totals and speed from xelite-core's counters (updated every second).</summary>
+        private void UpdateTraffic(bool connected)
+        {
+            var stats = connected ? VpnService.ReadStats() : new Dictionary<string, long>();
+            long up, down, tcp, udp, rejected, errors;
+            stats.TryGetValue("bytesIn", out up);
+            stats.TryGetValue("bytesOut", out down);
+            stats.TryGetValue("tcp", out tcp);
+            stats.TryGetValue("udp", out udp);
+            stats.TryGetValue("ipv6Rejected", out rejected);
+            stats.TryGetValue("dialErrors", out errors);
+
+            var now = DateTime.UtcNow;
+            var seconds = (now - _lastSample).TotalSeconds;
+            if (_lastUp >= 0 && seconds > 0.5 && up >= _lastUp && down >= _lastDown)
+            {
+                UpSpeedText.Text = Subscription.FormatBytes((long)((up - _lastUp) / seconds)) + "/s";
+                DownSpeedText.Text = Subscription.FormatBytes((long)((down - _lastDown) / seconds)) + "/s";
+            }
+            else if (!connected)
+            {
+                UpSpeedText.Text = "0 B/s";
+                DownSpeedText.Text = "0 B/s";
+            }
+            _lastUp = up;
+            _lastDown = down;
+            _lastSample = now;
+
+            UpText.Text = Subscription.FormatBytes(up);
+            DownText.Text = Subscription.FormatBytes(down);
+            FlowsText.Text = !connected ? "" :
+                stats.Count == 0 ? "no traffic statistics yet" :
+                string.Format("connections: {0} tcp, {1} udp{2}{3}", tcp, udp,
+                    rejected > 0 ? " · " + rejected + " IPv6 blocked" : "",
+                    errors > 0 ? " · " + errors + " errors" : "");
+        }
+
+        private async void CheckIp_Click(object sender, RoutedEventArgs e)
+        {
+            await CheckIpAsync();
+        }
+
+        private async Task CheckIpAsync()
+        {
+            IpText.Text = "checking…";
+            try
+            {
+                IpText.Text = await VpnService.CheckPublicIpAsync();
+            }
+            catch (Exception ex)
+            {
+                IpText.Text = "failed: " + ex.Message;
+            }
         }
 
         private async Task WaitForStatusAsync(VpnManagementConnectionStatus wanted, int seconds)
@@ -558,6 +621,7 @@ namespace Xelite
             DnsBox.Text = string.Join(", ", s.DnsServers);
             BypassLanSwitch.IsOn = s.BypassLan;
             BlockQuicSwitch.IsOn = s.BlockQuic;
+            Ipv6Switch.IsOn = s.AllowIpv6;
             UpdateOnStartSwitch.IsOn = s.UpdateOnStart;
             MtuBox.Text = s.Mtu.ToString();
             UserAgentBox.Text = s.UserAgent;
@@ -636,6 +700,7 @@ namespace Xelite
             }
             s.BypassLan = BypassLanSwitch.IsOn;
             s.BlockQuic = BlockQuicSwitch.IsOn;
+            s.AllowIpv6 = Ipv6Switch.IsOn;
             s.UpdateOnStart = UpdateOnStartSwitch.IsOn;
             s.SendHwid = SendHwidSwitch.IsOn;
             int mtu;

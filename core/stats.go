@@ -14,6 +14,7 @@ type stats struct {
 	bytesIn, bytesOut atomic.Uint64
 	tcp, udp          atomic.Uint64 // flows handed to Xray
 	dialErrors        atomic.Uint64
+	ipv6Rejected      atomic.Uint64
 
 	mu        sync.Mutex
 	lastError string
@@ -30,21 +31,22 @@ func (s *stats) String() string {
 	s.mu.Lock()
 	last := s.lastError
 	s.mu.Unlock()
-	line := fmt.Sprintf("packets in %d (%d B), out %d (%d B); flows tcp %d, udp %d; dial errors %d",
+	// Fixed "key=value" format: the app parses it for the home screen.
+	line := fmt.Sprintf("pktIn=%d bytesIn=%d pktOut=%d bytesOut=%d tcp=%d udp=%d dialErrors=%d ipv6Rejected=%d",
 		s.pktIn.Load(), s.bytesIn.Load(), s.pktOut.Load(), s.bytesOut.Load(),
-		s.tcp.Load(), s.udp.Load(), s.dialErrors.Load())
+		s.tcp.Load(), s.udp.Load(), s.dialErrors.Load(), s.ipv6Rejected.Load())
 	if last != "" {
-		line += "; last error " + last
+		line += "\nlast error: " + last
 	}
 	return line
 }
 
-// writeLoop rewrites path with the current counters every few seconds.
+// writeLoop rewrites path with the current counters every second.
 func (s *stats) writeLoop(path string, done <-chan struct{}) {
-	t := time.NewTicker(3 * time.Second)
+	t := time.NewTicker(time.Second)
 	defer t.Stop()
 	for {
-		_ = os.WriteFile(path, []byte(time.Now().Format("15:04:05 ")+s.String()), 0o644)
+		_ = os.WriteFile(path, []byte(s.String()), 0o644)
 		select {
 		case <-t.C:
 		case <-done:

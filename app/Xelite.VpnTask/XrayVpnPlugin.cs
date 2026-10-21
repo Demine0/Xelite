@@ -22,6 +22,7 @@ namespace Xelite.VpnTask
     internal sealed class XrayVpnPlugin : IVpnPlugIn
     {
         private const string TunAddress = "198.18.0.1";
+        private const string TunAddress6 = "fd66:7865::1";
 
         private DatagramSocket _socket;
         private CoreProcess _core;
@@ -50,7 +51,8 @@ namespace Xelite.VpnTask
 
                 Log(channel, "starting xelite-core on 127.0.0.1:" + port);
                 _core = new CoreProcess(Path.Combine(Package.Current.InstalledLocation.Path, "xelite-core.exe"), dataDir);
-                _core.StartAsync(Path.Combine(dataDir, "config.json"), port, mtu).Wait();
+                var allowIpv6 = settings.GetNamedBoolean("ipv6", false);
+                _core.StartAsync(Path.Combine(dataDir, "config.json"), port, mtu, allowIpv6).Wait();
                 Log(channel, "xelite-core ready");
 
                 _socket = new DatagramSocket();
@@ -63,6 +65,10 @@ namespace Xelite.VpnTask
                 // system default route, so they always win (same trick as OpenVPN's def1).
                 routes.Ipv4InclusionRoutes.Add(new VpnRoute(new HostName("0.0.0.0"), 1));
                 routes.Ipv4InclusionRoutes.Add(new VpnRoute(new HostName("128.0.0.0"), 1));
+                // Capture IPv6 too, or it leaks past the VPN over the Wi-Fi's own IPv6 route.
+                // xelite-core rejects it (unless enabled) so apps fall back to IPv4.
+                routes.Ipv6InclusionRoutes.Add(new VpnRoute(new HostName("::"), 1));
+                routes.Ipv6InclusionRoutes.Add(new VpnRoute(new HostName("8000::"), 1));
                 foreach (var cidr in Strings(settings, "exclude"))
                 {
                     routes.Ipv4ExclusionRoutes.Add(ParseRoute(cidr));
@@ -76,11 +82,11 @@ namespace Xelite.VpnTask
                 var domains = new VpnDomainNameAssignment();
                 domains.DomainNameList.Add(new VpnDomainNameInfo(".", VpnDomainNameType.Suffix, dnsServers, new List<HostName>()));
 
-                Log(channel, "routes: include 0.0.0.0/1, 128.0.0.0/1; exclude " + string.Join(", ", Strings(settings, "exclude")) +
+                Log(channel, "routes: include 0.0.0.0/1, 128.0.0.0/1, ::/1, 8000::/1 (ipv6 " + (allowIpv6 ? "proxied" : "rejected") + "); exclude " + string.Join(", ", Strings(settings, "exclude")) +
                              "; dns " + string.Join(", ", Strings(settings, "dns")) + "; mtu " + mtu);
                 channel.StartExistingTransports(
                     new List<HostName> { new HostName(TunAddress) },
-                    null,
+                    new List<HostName> { new HostName(TunAddress6) },
                     null,
                     routes,
                     domains,
