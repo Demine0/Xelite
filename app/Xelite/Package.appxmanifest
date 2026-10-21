@@ -6,7 +6,7 @@
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   IgnorableNamespaces="uap mp rescap">
 
-  <Identity Name="Xelite.XrayVPN" Publisher="CN=Xelite" Version="1.6.1.0" />
+  <Identity Name="Xelite.XrayVPN" Publisher="CN=Xelite" Version="1.6.2.0" />
 
   <mp:PhoneIdentity PhoneProductId="76e87a7b-34b0-4416-ae95-f9d2f82abab5" PhonePublisherId="00000000-0000-0000-0000-000000000000" />
 
@@ -41,11 +41,27 @@
         </uap:DefaultTile>
         <uap:SplashScreen Image="Assets\SplashScreen.png" BackgroundColor="#0B1426" />
       </uap:VisualElements>
+    </Application>
+
+    <!--
+      Hidden second application that hosts the VPN plug-in, as in Microsoft's UwpVpnPluginSample.
+      "vpnClient" tasks need a custom host (Executable), and a separate Application keeps the
+      plug-in in its own process, so closing the UI doesn't stop the tunnel.
+    -->
+    <Application Id="Plugin">
+      <uap:VisualElements
+        DisplayName="Xelite"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png"
+        Description="Xelite VPN plug-in"
+        BackgroundColor="transparent"
+        AppListEntry="none">
+        <uap:SplashScreen Image="Assets\SplashScreen.png" BackgroundColor="#0B1426" />
+      </uap:VisualElements>
       <Extensions>
-        <!-- The VPN platform only activates tasks declared as "vpnClient" (as in Microsoft's UwpVpnPluginSample). -->
-        <Extension Category="windows.backgroundTasks" EntryPoint="Xelite.VpnTask.VpnBackgroundTask">
+        <!-- The VPN platform only activates "vpnClient" tasks; it must be the only task type here. -->
+        <Extension Category="windows.backgroundTasks" Executable="$targetnametoken$.exe" EntryPoint="Xelite.VpnTask.VpnBackgroundTask">
           <BackgroundTasks>
-            <!-- Must be the only task type here: combined with others the phone refuses to register the package (0x80073CF6). -->
             <uap:Task Type="vpnClient" />
           </BackgroundTasks>
         </Extension>
