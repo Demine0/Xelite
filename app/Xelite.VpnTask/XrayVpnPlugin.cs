@@ -105,7 +105,7 @@ namespace Xelite.VpnTask
                 _socket = new DatagramSocket();
                 if (server.Length > 0 && serverPort > 0)
                 {
-                    _tunnel = new ServerTunnel(server, serverPort);
+                    _tunnel = new ServerTunnel(server, serverPort) { DirectWrite = settings.GetNamedBoolean("directUpload", true) };
                     step = "associating transports";
                     channel.AssociateTransport(_tunnel.Socket, _socket);
                 }
@@ -203,8 +203,11 @@ namespace Xelite.VpnTask
             keepAlivePacket = null;
         }
 
+        private long _encapsulateCalls;
+
         public void Encapsulate(VpnChannel channel, VpnPacketBufferList packets, VpnPacketBufferList encapulatedPackets)
         {
+            _encapsulateCalls++;
             var queue = _sendQueue;
             // The buffers belong to the platform's pool (about 50). Each one is taken off the
             // front and appended back to the *same* list once copied, which is how the platform
@@ -423,7 +426,9 @@ namespace Xelite.VpnTask
                         await Task.Delay(5000, cts.Token);
                         var cpu = _core?.CpuMilliseconds() ?? -1;
                         PluginLog.Write("alive: server down " + (_tunnel?.BytesDown ?? 0) + " B up " + (_tunnel?.BytesUp ?? 0) +
-                                        " B (attached " + (_tunnel?.IsAttached ?? false) + "), to core " + _sent + ", from core " + _received +
+                                        " B (attached " + (_tunnel?.IsAttached ?? false) + ", " + (_tunnel?.DirectWrite == true ? "direct" : "buffered") +
+                                        " upload, pool failures " + (_tunnel?.PoolFailures ?? 0) + "), encapsulate calls " + _encapsulateCalls +
+                                        ", to core " + _sent + ", from core " + _received +
                                         ", send queue " + (_sendQueue?.Count ?? -1) +
                                         ", xelite-core cpu " + (cpu == -1 ? "EXITED" : cpu + " ms") +
                                         ", core heartbeat " + (_lastHeartbeatAt == DateTime.MinValue

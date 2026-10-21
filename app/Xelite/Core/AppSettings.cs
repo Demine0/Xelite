@@ -75,6 +75,13 @@ namespace Xelite.Core
             set { Values.Values["muxConcurrency"] = value; }
         }
 
+        /// <summary>Write upload straight to the server socket instead of the VPN platform's send buffers.</summary>
+        public bool DirectUpload
+        {
+            get { return Get("directUpload", true); }
+            set { Values.Values["directUpload"] = value; }
+        }
+
         public bool UpdateOnStart
         {
             get { return Get("updateOnStart", true); }

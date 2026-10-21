@@ -58,6 +58,16 @@ namespace Xelite.VpnTask
 
         public long BytesDown;
         public long BytesUp;
+        public long PoolFailures;
+
+        /// <summary>
+        /// Write Xray's upload straight to the server socket. The platform only reads it
+        /// (we give it nothing to send), so we are its only writer. Going through
+        /// GetVpnSendPacketBuffer drained the platform's small buffer pool, which it also
+        /// needs to hand app packets to Encapsulate: Windows stopped delivering them.
+        /// </summary>
+        public bool DirectWrite = true;
+        private DataWriterQueue _toServer;
 
         public Task ConnectAsync()
         {
@@ -78,6 +88,13 @@ namespace Xelite.VpnTask
                 }
                 _relay = relay;
                 _toCore = new DataWriterQueue(relay.OutputStream, e => Close("writing to xelite-core failed: " + e.Message));
+                _toServer = new DataWriterQueue(Socket.OutputStream, e =>
+                {
+                    // The platform refused direct writes: fall back to its send buffers.
+                    PluginLog.Write("direct write to the server transport failed (" + PluginLog.Describe(e) + "); using platform buffers");
+                    DirectWrite = false;
+                    _ringDoorbell?.Invoke();
+                });
                 _ringDoorbell = ringDoorbell;
                 _onClosed = onClosed;
             }
@@ -119,6 +136,7 @@ namespace Xelite.VpnTask
                     }
                     catch (Exception)
                     {
+                        Interlocked.Increment(ref PoolFailures);
                         more = true; // pool exhausted; the next event continues
                         break;
                     }
@@ -164,6 +182,12 @@ namespace Xelite.VpnTask
                     }
                     var copy = new byte[read.Length];
                     read.CopyTo(0, copy, 0, (int)read.Length);
+                    if (DirectWrite)
+                    {
+                        Interlocked.Add(ref BytesUp, copy.Length);
+                        _toServer.Enqueue(copy);
+                        continue;
+                    }
                     bool wasEmpty;
                     lock (_gate)
                     {

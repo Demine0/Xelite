@@ -758,6 +758,7 @@ namespace Xelite
             Ipv6Switch.IsOn = s.AllowIpv6;
             PlatformTransportSwitch.IsOn = s.PlatformTransport;
             XrayDnsSwitch.IsOn = s.XrayDns;
+            DirectUploadSwitch.IsOn = s.DirectUpload;
             KeepAliveBox.Text = s.KeepAliveSeconds.ToString();
             MuxBox.Text = s.MuxConcurrency.ToString();
             UpdateOnStartSwitch.IsOn = s.UpdateOnStart;
@@ -841,6 +842,7 @@ namespace Xelite
             s.AllowIpv6 = Ipv6Switch.IsOn;
             s.PlatformTransport = PlatformTransportSwitch.IsOn;
             s.XrayDns = XrayDnsSwitch.IsOn;
+            s.DirectUpload = DirectUploadSwitch.IsOn;
             int keepAlive;
             if (int.TryParse(KeepAliveBox.Text, out keepAlive) && keepAlive >= 1 && keepAlive <= 120)
             {
