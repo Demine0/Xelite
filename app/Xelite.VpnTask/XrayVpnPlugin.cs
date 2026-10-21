@@ -28,6 +28,7 @@ namespace Xelite.VpnTask
 
         public void Connect(VpnChannel channel)
         {
+            Log(channel, "connect requested");
             try
             {
                 var dataDir = ApplicationData.Current.LocalFolder.Path;
@@ -42,10 +43,12 @@ namespace Xelite.VpnTask
                 Log(channel, "starting xelite-core on 127.0.0.1:" + port);
                 _core = new CoreProcess(Path.Combine(Package.Current.InstalledLocation.Path, "xelite-core.exe"), dataDir);
                 _core.StartAsync(Path.Combine(dataDir, "config.json"), port, mtu).Wait();
+                Log(channel, "xelite-core ready");
 
                 _socket = new DatagramSocket();
                 channel.AssociateTransport(_socket, null);
                 _socket.ConnectAsync(new HostName("127.0.0.1"), port.ToString()).AsTask().Wait();
+                Log(channel, "transport associated, starting tunnel");
 
                 var routes = new VpnRouteAssignment { ExcludeLocalSubnets = settings.GetNamedBoolean("bypassLan", true) };
                 routes.Ipv4InclusionRoutes.Add(new VpnRoute(new HostName("0.0.0.0"), 0));
@@ -76,7 +79,7 @@ namespace Xelite.VpnTask
             catch (Exception e)
             {
                 var inner = e is AggregateException ? e.InnerException ?? e : e;
-                Log(channel, "connect failed: " + inner.Message);
+                Log(channel, "connect failed: " + PluginLog.Describe(inner));
                 Cleanup();
                 channel.TerminateConnection(inner.Message);
             }
@@ -161,16 +164,7 @@ namespace Xelite.VpnTask
 
         private static void Log(VpnChannel channel, string message)
         {
-            try
-            {
-                channel.LogDiagnosticMessage(message);
-                var path = Path.Combine(ApplicationData.Current.LocalFolder.Path, "vpn.log");
-                File.AppendAllText(path, DateTime.Now.ToString("HH:mm:ss ") + message + Environment.NewLine);
-            }
-            catch (Exception)
-            {
-                // logging must never break the tunnel
-            }
+            PluginLog.Write(message, channel);
         }
     }
 }

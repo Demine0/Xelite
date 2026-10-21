@@ -55,10 +55,15 @@ namespace Xelite.Core
             {
                 return null;
             }
-            var name = config.GetNamedString("remarks", "");
+            return FromOutbound(outbound, config.GetNamedString("remarks", ""));
+        }
+
+        /// <summary>Encodes an Xray outbound as an "xray-json://" line.</summary>
+        public static string FromOutbound(JsonObject outbound, string name)
+        {
             var bytes = Encoding.UTF8.GetBytes(outbound.Stringify());
             var line = JsonScheme + "://" + Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-            return name.Length > 0 ? line + "#" + Uri.EscapeDataString(name) : line;
+            return string.IsNullOrEmpty(name) ? line : line + "#" + Uri.EscapeDataString(name);
         }
 
         private static ProxyLink ParseJsonOutbound(string body)

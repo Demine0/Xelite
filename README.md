@@ -16,6 +16,7 @@ It works on Windows 10 Mobile ARM phones (build 15063 or later).
 * **HWID device limit** (Remnawave, also used by Happ / Incy): sends `x-hwid`, `x-device-os`, `x-ver-os` and `x-device-model`
   * the ID is stable per device and survives reinstalling the app; it can be viewed, copied, replaced (for example with an old device's ID) or turned off in settings
   * "device limit reached" and "device ID required" are reported clearly, based on the panel's `x-hwid-*` response headers
+* **Config editor**: long-press a server → edit opens its Xray outbound as JSON. Edits of subscription servers are saved as a copy in "manual", so updates don't overwrite them
 * Share links: `vless://` (REALITY, Vision, XHTTP, VLESS encryption), `vmess://`, `trojan://`, `ss://` (incl. 2022), `hysteria2://` (salamander obfs)
 * Transports: raw/tcp (+http header), ws, grpc, httpupgrade, xhttp, hysteria
 * System-wide VPN (all apps), DNS through the tunnel, LAN bypass, optional QUIC block, TCP ping, log viewer
@@ -60,7 +61,7 @@ You need Visual Studio 2019 or 2022 with the **Universal Windows Platform develo
 including ARM support, and **Windows 10 SDK 10.0.19041.0**.
 
 ```powershell
-.\build.ps1                  # Release|ARM  -> dist\Xelite_1.1.0.0_ARM_Test\Xelite_1.1.0.0_ARM.appx
+.\build.ps1                  # Release|ARM  -> dist\Xelite_1.2.0.0_ARM_Test\Xelite_1.2.0.0_ARM.appx
 .\build.ps1 -Platform x64    # PC build, to test the whole flow on a Windows 10/11 desktop
 ```
 
@@ -75,11 +76,11 @@ There is also a GitHub Actions workflow (`.github/workflows/build.yml`) that bui
    **Device discovery** and **Device Portal**.
 2. On a PC, open the Device Portal address the phone shows (e.g. `https://192.168.1.50`). Go to
    **Apps → Install app**, then pick:
-   * the `.appx` from `dist\...\Xelite_1.1.0.0_ARM.appx`
+   * the `.appx` from `dist\...\Xelite_1.2.0.0_ARM.appx`
    * the dependencies from `dist\...\Dependencies\ARM\` (`Microsoft.NET.Native.Framework.2.2`,
      `Microsoft.NET.Native.Runtime.2.2`, `Microsoft.VCLibs.140.00`)
    * the certificate `dist\Xelite.cer`, if the portal asks for it
-3. Alternatively use `WinAppDeployCmd.exe install -file Xelite_1.1.0.0_ARM.appx -ip <phone ip>`
+3. Alternatively use `WinAppDeployCmd.exe install -file Xelite_1.2.0.0_ARM.appx -ip <phone ip>`
    from the Windows 10 SDK.
 
 ## Use
@@ -88,7 +89,7 @@ There is also a GitHub Actions workflow (`.github/workflows/build.yml`) that bui
 2. Tap a server to select it, then tap the round button to connect. The first time, Windows asks
    you to allow the "Xelite" VPN profile.
 3. **ping** measures TCP latency to every server (only while disconnected).
-4. **⋯ → show log** shows the plug-in log and the Xray log. Check it first if a connection fails.
+4. **⋯ → show log** shows the app, VPN plug-in and Xray logs. Check it first if a connection fails. **⋯ → reset VPN profile** recreates the system VPN profile.
 
 The VPN profile also appears in **Settings → Network & Wi-Fi → VPN** and reconnects with the last chosen server.
 

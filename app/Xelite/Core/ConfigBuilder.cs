@@ -259,7 +259,6 @@ namespace Xelite.Core
                     }
                 }
             }
-            outbound.Remove("mux");
             return outbound;
         }
 
@@ -457,6 +456,45 @@ namespace Xelite.Core
                 return false;
             }
             return h.Type == Windows.Networking.HostNameType.Ipv4 || h.Type == Windows.Networking.HostNameType.Ipv6;
+        }
+
+        /// <summary>Indented JSON, for the config editor.</summary>
+        public static string Pretty(IJsonValue value, string indent = "")
+        {
+            var inner = indent + "  ";
+            switch (value.ValueType)
+            {
+                case JsonValueType.Object:
+                    {
+                        var obj = value.GetObject();
+                        if (obj.Count == 0)
+                        {
+                            return "{}";
+                        }
+                        var parts = new List<string>();
+                        foreach (var kv in obj)
+                        {
+                            parts.Add(inner + JsonValue.CreateStringValue(kv.Key).Stringify() + ": " + Pretty(kv.Value, inner));
+                        }
+                        return "{\n" + string.Join(",\n", parts) + "\n" + indent + "}";
+                    }
+                case JsonValueType.Array:
+                    {
+                        var arr = value.GetArray();
+                        if (arr.Count == 0)
+                        {
+                            return "[]";
+                        }
+                        var parts = new List<string>();
+                        foreach (var v in arr)
+                        {
+                            parts.Add(inner + Pretty(v, inner));
+                        }
+                        return "[\n" + string.Join(",\n", parts) + "\n" + indent + "]";
+                    }
+                default:
+                    return value.Stringify();
+            }
         }
 
         private static JsonValue Str(string s)

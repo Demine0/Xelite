@@ -17,6 +17,7 @@
             <CommandBar.SecondaryCommands>
                 <AppBarButton Label="show log" Click="ShowLog_Click" />
                 <AppBarButton Label="clear log" Click="ClearLog_Click" />
+                <AppBarButton Label="reset VPN profile" Click="ResetProfile_Click" />
             </CommandBar.SecondaryCommands>
         </CommandBar>
     </Page.BottomAppBar>

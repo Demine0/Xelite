@@ -45,6 +45,9 @@ if (-not (Test-Path $pfx)) {
     $pfxPassword = New-Object System.Security.SecureString
     Export-PfxCertificate -Cert $cert -FilePath $pfx -Password $pfxPassword | Out-Null
     Export-Certificate -Cert $cert -FilePath $cer | Out-Null
+} elseif (-not (Test-Path $cer)) {
+    $existing = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfx, "")
+    [IO.File]::WriteAllBytes($cer, $existing.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert))
 }
 
 # 3. MSBuild

@@ -1,3 +1,4 @@
+using System;
 using Windows.ApplicationModel.Background;
 using Windows.Networking.Vpn;
 
@@ -14,14 +15,23 @@ namespace Xelite.VpnTask
 
         public void Run(IBackgroundTaskInstance taskInstance)
         {
-            lock (Gate)
+            try
             {
-                if (_plugin == null)
+                lock (Gate)
                 {
-                    _plugin = new XrayVpnPlugin();
+                    if (_plugin == null)
+                    {
+                        PluginLog.Write("plug-in activated");
+                        _plugin = new XrayVpnPlugin();
+                    }
                 }
+                VpnChannel.ProcessEventAsync(_plugin, taskInstance.TriggerDetails);
             }
-            VpnChannel.ProcessEventAsync(_plugin, taskInstance.TriggerDetails);
+            catch (Exception e)
+            {
+                PluginLog.Write("plug-in task failed: " + PluginLog.Describe(e));
+                throw;
+            }
         }
     }
 }

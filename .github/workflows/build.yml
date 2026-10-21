@@ -16,6 +16,16 @@ jobs:
       - name: Build xelite-core (ARM + x64)
         shell: bash
         run: ./build-core.sh
+      - name: Restore signing certificate
+        shell: pwsh
+        env:
+          XELITE_PFX: ${{ secrets.XELITE_PFX }}
+        # A fixed certificate lets new versions install as updates (keeping app data).
+        # Without the secret (e.g. in forks) build.ps1 creates a temporary one.
+        run: |
+          if ($env:XELITE_PFX) {
+            [IO.File]::WriteAllBytes("app/Xelite/Xelite_TemporaryKey.pfx", [Convert]::FromBase64String($env:XELITE_PFX))
+          }
       - name: Build appx (ARM)
         shell: pwsh
         run: ./build.ps1 -Platform ARM

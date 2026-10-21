@@ -23,6 +23,18 @@ namespace Xelite.Core
         public static string DataDir => ApplicationData.Current.LocalFolder.Path;
         public static string XrayLogPath => Path.Combine(DataDir, "xray.log");
         public static string PluginLogPath => Path.Combine(DataDir, "vpn.log");
+        public static string AppLogPath => Path.Combine(DataDir, "app.log");
+
+        public static void AppLog(string message)
+        {
+            try
+            {
+                File.AppendAllText(AppLogPath, DateTime.Now.ToString("HH:mm:ss ") + message + Environment.NewLine);
+            }
+            catch (Exception)
+            {
+            }
+        }
 
         public static async Task<VpnManagementConnectionStatus> GetStatusAsync()
         {
@@ -55,6 +67,7 @@ namespace Xelite.Core
             {
                 throw new InvalidOperationException("Cannot resolve " + candidates.First().Address);
             }
+            AppLog("connect: " + links.Count + " server(s), first " + links[0].Name + " (" + ips[0] + ")");
 
             File.WriteAllText(Path.Combine(DataDir, "config.json"),
                 ConfigBuilder.Build(links, ips, settings, XrayLogPath));
@@ -91,12 +104,20 @@ namespace Xelite.Core
             File.WriteAllText(Path.Combine(DataDir, "vpn.json"), vpn.Stringify());
             TrimLog(XrayLogPath);
             TrimLog(PluginLogPath);
+            TrimLog(AppLogPath);
 
             var profile = await EnsureProfileAsync();
+            var pluginLogSize = FileSize(PluginLogPath);
+            AppLog("ConnectProfileAsync(" + profile.ProfileName + ", " + profile.VpnPluginPackageFamilyName + ")");
             var status = await Agent.ConnectProfileAsync(profile);
+            AppLog("ConnectProfileAsync -> " + status + ", profile status " + profile.ConnectionStatus);
             if (status != VpnManagementErrorStatus.Ok)
             {
-                throw new InvalidOperationException("Connect failed: " + status);
+                var pluginRan = FileSize(PluginLogPath) > pluginLogSize;
+                var lastLine = LastLine(PluginLogPath);
+                throw new InvalidOperationException(pluginRan && lastLine.Length > 0
+                    ? "Connect failed: " + status + "\n" + lastLine
+                    : "Connect failed: " + status + "\nThe VPN plug-in did not start. Try ⋯ → reset VPN profile, then connect again.");
             }
         }
 
@@ -154,6 +175,43 @@ namespace Xelite.Core
             return best.CanonicalName;
         }
 
+        /// <summary>Deletes the Xelite VPN profile; the next connect creates it again.</summary>
+        public static async Task ResetProfileAsync()
+        {
+            var profile = await FindProfileAsync();
+            if (profile == null)
+            {
+                AppLog("reset: no profile");
+                return;
+            }
+            await Agent.DisconnectProfileAsync(profile);
+            var status = await Agent.DeleteProfileAsync(profile);
+            AppLog("reset: DeleteProfileAsync -> " + status);
+            if (status != VpnManagementErrorStatus.Ok)
+            {
+                throw new InvalidOperationException("Cannot delete the VPN profile: " + status +
+                                                    ". Remove \"" + ProfileName + "\" in Settings → Network & wireless → VPN.");
+            }
+        }
+
+        private static long FileSize(string path)
+        {
+            try
+            {
+                return File.Exists(path) ? new FileInfo(path).Length : 0;
+            }
+            catch (IOException)
+            {
+                return 0;
+            }
+        }
+
+        private static string LastLine(string path)
+        {
+            var lines = ReadTail(path, 2000).Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            return lines.Length > 0 ? lines[lines.Length - 1] : "";
+        }
+
         private static async Task<VpnPlugInProfile> FindProfileAsync()
         {
             var profiles = await Agent.GetProfilesAsync();
@@ -177,6 +235,7 @@ namespace Xelite.Core
             };
             profile.ServerUris.Add(new Uri("https://127.0.0.1"));
             var status = await Agent.AddProfileFromObjectAsync(profile);
+            AppLog("AddProfileFromObjectAsync(" + profile.VpnPluginPackageFamilyName + ") -> " + status);
             if (status != VpnManagementErrorStatus.Ok)
             {
                 throw new InvalidOperationException("Cannot create VPN profile: " + status);
@@ -186,12 +245,15 @@ namespace Xelite.Core
 
         public static string ReadLogs()
         {
-            return ReadTail(PluginLogPath, 4000) + Environment.NewLine + "--- xray ---" + Environment.NewLine + ReadTail(XrayLogPath, 12000);
+            var tempPluginLog = Path.Combine(ApplicationData.Current.TemporaryFolder.Path, "vpn.log");
+            return "--- app ---" + Environment.NewLine + ReadTail(AppLogPath, 3000) + Environment.NewLine +
+                   "--- vpn plug-in ---" + Environment.NewLine + ReadTail(PluginLogPath, 4000) + ReadTail(tempPluginLog, 2000) + Environment.NewLine +
+                   "--- xray ---" + Environment.NewLine + ReadTail(XrayLogPath, 12000);
         }
 
         public static void ClearLogs()
         {
-            foreach (var path in new[] { XrayLogPath, PluginLogPath })
+            foreach (var path in new[] { XrayLogPath, PluginLogPath, AppLogPath })
             {
                 try
                 {
@@ -214,7 +276,7 @@ namespace Xelite.Core
                     return text.Length > chars ? text.Substring(text.Length - chars) : text;
                 }
             }
-            catch (IOException)
+            catch (Exception)
             {
                 return "";
             }

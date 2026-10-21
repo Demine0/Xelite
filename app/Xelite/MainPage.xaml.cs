@@ -162,6 +162,9 @@ namespace Xelite
                 return;
             }
             var menu = new MenuFlyout();
+            var edit = new MenuFlyoutItem { Text = "edit" };
+            edit.Click += async (s, e) => await EditServerAsync(item);
+            menu.Items.Add(edit);
             var copy = new MenuFlyoutItem { Text = "copy link" };
             copy.Click += (s, e) =>
             {
@@ -181,6 +184,120 @@ namespace Xelite
                 menu.Items.Add(delete);
             }
             menu.ShowAt(element);
+        }
+
+        /// <summary>
+        /// Edits the Xray outbound of a server as JSON. Servers from a subscription
+        /// are saved as a copy in "manual", so the next update doesn't undo the edit.
+        /// </summary>
+        private async Task EditServerAsync(ServerItem item)
+        {
+            string json;
+            try
+            {
+                json = ConfigBuilder.Pretty(ConfigBuilder.BuildOutbound(item.Link, null));
+            }
+            catch (Exception ex)
+            {
+                await ShowMessageAsync("cannot build this server's config: " + ex.Message);
+                return;
+            }
+            var fromSubscription = !item.Owner.IsManual;
+            var name = new TextBox { Header = "name", Text = item.Name };
+            var editor = new TextBox
+            {
+                Header = "xray outbound (JSON)",
+                Text = json,
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.NoWrap,
+                FontFamily = new FontFamily("Consolas"),
+                FontSize = 13,
+                IsSpellCheckEnabled = false,
+                IsTextPredictionEnabled = false,
+                Height = 320,
+                Margin = new Thickness(0, 12, 0, 0),
+            };
+            ScrollViewer.SetHorizontalScrollBarVisibility(editor, ScrollBarVisibility.Auto);
+            ScrollViewer.SetVerticalScrollBarVisibility(editor, ScrollBarVisibility.Auto);
+            var panel = new StackPanel { Children = { name, editor } };
+            if (fromSubscription)
+            {
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "saved as a copy in \"manual\", so subscription updates keep your changes.",
+                    TextWrapping = TextWrapping.Wrap,
+                    Opacity = 0.7,
+                    Margin = new Thickness(0, 8, 0, 0),
+                });
+            }
+
+            while (true)
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = "edit server",
+                    Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
+                    PrimaryButtonText = "save",
+                    SecondaryButtonText = "cancel",
+                };
+                if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+                {
+                    return;
+                }
+                // Detach the form so the next dialog (after an error) can show it again.
+                ((ScrollViewer)dialog.Content).Content = null;
+
+                string line;
+                string error = null;
+                ProxyLink parsed = null;
+                Windows.Data.Json.JsonObject outbound;
+                if (!Windows.Data.Json.JsonObject.TryParse(editor.Text, out outbound))
+                {
+                    error = "that is not valid JSON.";
+                    line = null;
+                }
+                else
+                {
+                    line = ProxyLink.FromOutbound(outbound, name.Text.Trim());
+                    try
+                    {
+                        parsed = ProxyLink.Parse(line);
+                        ConfigBuilder.BuildOutbound(parsed, null);
+                    }
+                    catch (Exception ex)
+                    {
+                        error = "the outbound needs \"protocol\" and a server with \"address\" and \"port\" (" + ex.Message + ").";
+                    }
+                }
+                if (error != null)
+                {
+                    await ShowMessageAsync(error);
+                    continue;
+                }
+
+                var manual = _model.First(sub => sub.IsManual);
+                var index = fromSubscription ? -1 : manual.Links.IndexOf(item.Link.Raw);
+                if (index >= 0)
+                {
+                    manual.Links[index] = line;
+                }
+                else
+                {
+                    manual.Links.Add(line);
+                }
+                AppSettings.Current.SelectedLink = line;
+                await SaveAndRebuildAsync();
+                return;
+            }
+        }
+
+        private async void ResetProfile_Click(object sender, RoutedEventArgs e)
+        {
+            await RunBusyAsync(async () =>
+            {
+                await VpnService.ResetProfileAsync();
+                await ShowMessageAsync("the VPN profile was removed. it is created again on the next connect.");
+            });
         }
 
         private async void Ping_Click(object sender, RoutedEventArgs e)
