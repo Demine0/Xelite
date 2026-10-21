@@ -171,19 +171,22 @@ namespace Xelite.VpnTask
         public void Encapsulate(VpnChannel channel, VpnPacketBufferList packets, VpnPacketBufferList encapulatedPackets)
         {
             var queue = _sendQueue;
-            while (packets.Size > 0)
+            // The buffers belong to the platform's pool (about 50). Each one is taken off the
+            // front and appended back to the *same* list once copied, which is how the platform
+            // gets it back (as WSSHVpnPlugin and the shipping plug-ins do); encapulatedPackets
+            // stays empty because nothing goes out through the transport. Dropping the buffers
+            // starved the pool after 50 packets; appending them to encapulatedPackets made the
+            // platform send them through the dead transport. Size is read once: the list is
+            // rotated, not drained.
+            var count = packets.Size;
+            for (uint i = 0; i < count; i++)
             {
-                // Copy the packet and send it to xelite-core ourselves (see _side).
                 var packet = packets.RemoveAtBegin();
                 var src = packet.Buffer;
                 var copy = new Windows.Storage.Streams.Buffer(src.Length);
                 src.CopyTo(0, copy, 0, src.Length);
                 copy.Length = src.Length;
-                // The buffer belongs to the platform's pool (about 50 of them); it only
-                // comes back through encapulatedPackets. Dropping it starved the pool and
-                // Windows stopped delivering packets after 50. Return it emptied.
-                src.Length = 0;
-                encapulatedPackets.Append(packet);
+                packets.Append(packet);
                 if (queue == null || !queue.TryAdd(copy))
                 {
                     continue; // queue full or closing: drop, TCP retransmits

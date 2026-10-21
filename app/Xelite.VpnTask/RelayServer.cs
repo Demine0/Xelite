@@ -112,10 +112,11 @@ namespace Xelite.VpnTask
                 await WriteLineAsync(toCore, "OK");
                 LogFirst("TCP " + host + ":" + port);
 
-                var fromRemote = remote.InputStream.AsStreamForRead(0);
-                var toRemote = remote.OutputStream.AsStreamForWrite(0);
-                var up = PumpAsync(fromCore, toRemote);
-                var down = PumpAsync(fromRemote, toCore);
+                // Raw WinRT streams with Partial reads: a read returns as soon as any bytes
+                // arrive. Through the .NET stream adapters small writes (DNS answers, short
+                // HTTP/2 frames) could sit waiting for a full buffer, so most requests hung.
+                var up = PumpAsync(local.InputStream, remote.OutputStream);
+                var down = PumpAsync(remote.InputStream, local.OutputStream);
                 // Either side closing ends the relay; disposing both sockets stops the other pump.
                 await Task.WhenAny(up, down);
             }
@@ -185,16 +186,19 @@ namespace Xelite.VpnTask
             }
         }
 
-        private static async Task PumpAsync(Stream from, Stream to)
+        private static async Task PumpAsync(IInputStream from, IOutputStream to)
         {
-            var buffer = new byte[16384];
+            var buffer = new Windows.Storage.Streams.Buffer(16384);
             try
             {
-                int n;
-                while ((n = await from.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                while (true)
                 {
-                    await to.WriteAsync(buffer, 0, n);
-                    await to.FlushAsync();
+                    var read = await from.ReadAsync(buffer, buffer.Capacity, InputStreamOptions.Partial);
+                    if (read.Length == 0)
+                    {
+                        break;
+                    }
+                    await to.WriteAsync(read);
                 }
             }
             catch (Exception)
