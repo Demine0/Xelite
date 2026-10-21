@@ -37,9 +37,10 @@ It works on Windows 10 Mobile ARM phones (build 15063 or later).
 
 * `core/` is the Go engine: Xray-core plus a gVisor netstack bridge (`bridge.go`). Captured flows are
   dispatched into Xray with the inbound tag `tun` and sniffing (http/tls/quic, route-only).
-* `app/Xelite.VpnTask/` is the UWP VPN plug-in (`IVpnPlugIn`). The VPN channel's outer transport is
-  a `DatagramSocket` connected to the core. `Encapsulate` passes packets through unchanged and
-  `Decapsulate` injects the core's replies.
+* `app/Xelite.VpnTask/` is the UWP VPN plug-in (`IVpnPlugIn`). `Encapsulate` sends each captured packet to the
+  core over the plug-in's own loopback socket: Windows binds the VPN transport socket to the physical interface,
+  where datagrams to 127.0.0.1 never arrive. The core sends replies to the transport socket (told via `XELITE-RT<port>`),
+  and `Decapsulate` injects them.
 * `app/Xelite/` is the phone UI (Pivot: servers / subscriptions / settings), the link parser and the config builder.
 * The server's IP is resolved before connecting and excluded from the tunnel, so Xray's own traffic
   doesn't loop back into the VPN.
@@ -64,7 +65,7 @@ You need Visual Studio 2019 or 2022 with the **Universal Windows Platform develo
 including ARM support, and **Windows 10 SDK 10.0.19041.0**.
 
 ```powershell
-.\build.ps1                  # Release|ARM  -> dist\Xelite_1.9.0.0_ARM_Test\Xelite_1.9.0.0_ARM.appx
+.\build.ps1                  # Release|ARM  -> dist\Xelite_1.10.0.0_ARM_Test\Xelite_1.10.0.0_ARM.appx
 .\build.ps1 -Platform x64    # PC build, to test the whole flow on a Windows 10/11 desktop
 ```
 
@@ -79,11 +80,11 @@ There is also a GitHub Actions workflow (`.github/workflows/build.yml`) that bui
    **Device discovery** and **Device Portal**.
 2. On a PC, open the Device Portal address the phone shows (e.g. `https://192.168.1.50`). Go to
    **Apps → Install app**, then pick:
-   * the `.appx` from `dist\...\Xelite_1.9.0.0_ARM.appx`
+   * the `.appx` from `dist\...\Xelite_1.10.0.0_ARM.appx`
    * the dependencies from `dist\...\Dependencies\ARM\` (`Microsoft.NET.Native.Framework.2.2`,
      `Microsoft.NET.Native.Runtime.2.2`, `Microsoft.VCLibs.140.00`)
    * the certificate `dist\Xelite.cer`, if the portal asks for it
-3. Alternatively use `WinAppDeployCmd.exe install -file Xelite_1.9.0.0_ARM.appx -ip <phone ip>`
+3. Alternatively use `WinAppDeployCmd.exe install -file Xelite_1.10.0.0_ARM.appx -ip <phone ip>`
    from the Windows 10 SDK.
 
 ## Use

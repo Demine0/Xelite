@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	stdnet "net"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -37,9 +38,31 @@ const (
 )
 
 var (
-	pingMagic = []byte("XELITE-PING")
-	pongMagic = []byte("XELITE-PONG")
+	pingMagic    = []byte("XELITE-PING")
+	pongMagic    = []byte("XELITE-PONG")
+	replyToMagic = []byte("XELITE-RT") // followed by the port to send replies to
 )
+
+// control handles the plug-in's short control datagrams.
+func (b *bridge) control(msg []byte, from *stdnet.UDPAddr) {
+	switch {
+	case bytes.HasPrefix(msg, pingMagic):
+		// Loopback test: echo so the plug-in knows datagrams pass both ways.
+		_, _ = b.conn.WriteToUDP(pongMagic, from)
+	case bytes.HasPrefix(msg, replyToMagic):
+		// The plug-in sends packets from its own socket, because Windows binds
+		// the VPN transport socket to the physical interface, where loopback
+		// datagrams never arrive. Replies still go to the transport socket so
+		// the VPN platform hands them to Decapsulate.
+		port, err := strconv.Atoi(string(msg[len(replyToMagic):]))
+		if err != nil || port <= 0 || port > 65535 {
+			return
+		}
+		b.peer.Store(&stdnet.UDPAddr{IP: stdnet.IPv4(127, 0, 0, 1), Port: port})
+		b.fixedPeer.Store(true)
+		_, _ = b.conn.WriteToUDP(append([]byte(nil), msg...), from) // ack
+	}
+}
 
 // bridge moves raw IP packets between the VPN plug-in (over loopback UDP)
 // and a gVisor stack whose TCP/UDP flows are dispatched into Xray.
@@ -56,6 +79,10 @@ type bridge struct {
 
 	// rejectIPv6 refuses IPv6 flows captured by the tunnel (leak protection).
 	rejectIPv6 bool
+
+	// fixedPeer is set once the plug-in names its VPN transport socket as the
+	// reply address (XELITE-RT); packets then arrive from a different socket.
+	fixedPeer atomic.Bool
 }
 
 func newBridge(inst *core.Instance, port int, mtu uint32, rejectIPv6 bool) (*bridge, error) {
@@ -130,14 +157,12 @@ func (b *bridge) readLoop() {
 			continue
 		}
 		if n < header.IPv4MinimumSize {
-			// The plug-in's loopback test: echo it so the plug-in knows datagrams
-			// get through in both directions.
-			if bytes.HasPrefix(buf[:n], pingMagic) {
-				_, _ = b.conn.WriteToUDP(pongMagic, addr)
-			}
+			b.control(buf[:n], addr)
 			continue
 		}
-		b.peer.Store(addr)
+		if !b.fixedPeer.Load() {
+			b.peer.Store(addr)
+		}
 		b.stats.pktIn.Add(1)
 		b.stats.bytesIn.Add(uint64(n))
 		var proto tcpip.NetworkProtocolNumber

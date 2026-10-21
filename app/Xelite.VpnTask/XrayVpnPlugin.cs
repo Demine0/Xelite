@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices.WindowsRuntime;
@@ -7,7 +8,9 @@ using Windows.Data.Json;
 using Windows.Networking;
 using Windows.Networking.Sockets;
 using Windows.Networking.Vpn;
+using System.Threading;
 using Windows.Storage;
+using Windows.Storage.Streams;
 
 namespace Xelite.VpnTask
 {
@@ -27,8 +30,20 @@ namespace Xelite.VpnTask
         private DatagramSocket _socket;
         private CoreProcess _core;
 
-        // Traffic counters, logged at the first packet each way and then every LogEvery packets.
-        private const long LogEvery = 2000;
+        // Packets to xelite-core go through this socket, not the VPN transport:
+        // Windows binds the transport to the physical interface, where datagrams
+        // to 127.0.0.1 never arrive. Replies come back on the transport.
+        private DatagramSocket _side;
+        private BlockingCollection<IBuffer> _sendQueue;
+        private Thread _sender;
+        private readonly AutoResetEvent _controlReply = new AutoResetEvent(false);
+        private string _controlExpected;
+
+        // Traffic counters, logged at 1, 10, 100 and then every 1000 packets each way.
+        private static bool ShouldLog(long n)
+        {
+            return n == 1 || n == 10 || n == 100 || n % 1000 == 0;
+        }
         private long _sent;
         private long _received;
 
@@ -54,7 +69,8 @@ namespace Xelite.VpnTask
                 var allowIpv6 = settings.GetNamedBoolean("ipv6", false);
                 _core.StartAsync(Path.Combine(dataDir, "config.json"), port, mtu, allowIpv6).Wait();
                 Log(channel, "xelite-core ready");
-                if (!LoopbackTest(port))
+                OpenSideSocket(port);
+                if (!Control("XELITE-PING", "XELITE-PONG"))
                 {
                     throw new InvalidOperationException(
                         "Windows blocks loopback traffic between Xelite's VPN plug-in and its engine (127.0.0.1:" + port +
@@ -65,7 +81,10 @@ namespace Xelite.VpnTask
                 _socket = new DatagramSocket();
                 channel.AssociateTransport(_socket, null);
                 _socket.ConnectAsync(new HostName("127.0.0.1"), port.ToString()).AsTask().Wait();
-                Log(channel, "transport associated, starting tunnel");
+                var transportPort = _socket.Information.LocalPort;
+                var ack = Control("XELITE-RT" + transportPort, "XELITE-RT" + transportPort);
+                Log(channel, "transport associated (local port " + transportPort + ", reply-to " +
+                             (ack ? "acknowledged" : "NOT acknowledged") + "), starting tunnel");
 
                 var routes = new VpnRouteAssignment { ExcludeLocalSubnets = settings.GetNamedBoolean("bypassLan", true) };
                 // Two /1 routes instead of 0.0.0.0/0: they are more specific than the
@@ -136,11 +155,21 @@ namespace Xelite.VpnTask
 
         public void Encapsulate(VpnChannel channel, VpnPacketBufferList packets, VpnPacketBufferList encapulatedPackets)
         {
+            var queue = _sendQueue;
             while (packets.Size > 0)
             {
-                encapulatedPackets.Append(packets.RemoveAtBegin());
+                // Copy the packet and send it to xelite-core ourselves (see _side);
+                // nothing goes out through the transport.
+                var src = packets.RemoveAtBegin().Buffer;
+                var copy = new Windows.Storage.Streams.Buffer(src.Length);
+                src.CopyTo(0, copy, 0, src.Length);
+                copy.Length = src.Length;
+                if (queue == null || !queue.TryAdd(copy))
+                {
+                    continue; // queue full or closing: drop, TCP retransmits
+                }
                 var n = ++_sent;
-                if (n == 1 || n % LogEvery == 0)
+                if (ShouldLog(n))
                 {
                     Log(channel, "to xelite-core: " + n + " packets");
                 }
@@ -163,58 +192,93 @@ namespace Xelite.VpnTask
             packet.Buffer.Length = src.Length;
             decapsulatedPackets.Append(packet);
             var n = ++_received;
-            if (n == 1 || n % LogEvery == 0)
+            if (ShouldLog(n))
             {
                 Log(channel, "from xelite-core: " + n + " packets");
             }
         }
 
-        /// <summary>
-        /// Sends XELITE-PING to xelite-core and waits for XELITE-PONG: the tunnel
-        /// only works if loopback datagrams get through in both directions.
-        /// </summary>
-        private static bool LoopbackTest(int port)
+        private void OpenSideSocket(int port)
         {
-            using (var socket = new DatagramSocket())
+            _side = new DatagramSocket();
+            _side.MessageReceived += (sock, e) =>
             {
-                var pong = new System.Threading.ManualResetEventSlim(false);
-                socket.MessageReceived += (s, e) =>
-                {
-                    try
-                    {
-                        var reader = e.GetDataReader();
-                        if (reader.UnconsumedBufferLength >= 11 && reader.ReadString(11) == "XELITE-PONG")
-                        {
-                            pong.Set();
-                        }
-                    }
-                    catch (Exception)
-                    {
-                    }
-                };
                 try
                 {
-                    socket.ConnectAsync(new HostName("127.0.0.1"), port.ToString()).AsTask().Wait();
-                    var writer = new Windows.Storage.Streams.DataWriter(socket.OutputStream);
-                    for (var i = 0; i < 3 && !pong.IsSet; i++)
+                    var reader = e.GetDataReader();
+                    var expected = _controlExpected;
+                    if (expected != null && reader.UnconsumedBufferLength == expected.Length &&
+                        reader.ReadString(reader.UnconsumedBufferLength) == expected)
                     {
-                        writer.WriteString("XELITE-PING");
-                        writer.StoreAsync().AsTask().Wait();
-                        pong.Wait(700);
+                        _controlReply.Set();
                     }
-                    writer.DetachStream();
+                }
+                catch (Exception)
+                {
+                }
+            };
+            _side.ConnectAsync(new HostName("127.0.0.1"), port.ToString()).AsTask().Wait();
+
+            _sendQueue = new BlockingCollection<IBuffer>(4096);
+            var queue = _sendQueue;
+            var output = _side.OutputStream;
+            _sender = new Thread(() =>
+            {
+                try
+                {
+                    foreach (var packet in queue.GetConsumingEnumerable())
+                    {
+                        output.WriteAsync(packet).AsTask().Wait();
+                    }
                 }
                 catch (Exception e)
                 {
-                    PluginLog.Write("loopback test error: " + PluginLog.Describe(e));
+                    PluginLog.Write("sender stopped: " + PluginLog.Describe(e));
                 }
-                PluginLog.Write("loopback test: " + (pong.IsSet ? "echo received" : "no echo"));
-                return pong.IsSet;
+            }) { IsBackground = true };
+            _sender.Start();
+        }
+
+        /// <summary>
+        /// Sends a control datagram to xelite-core over the side socket and waits
+        /// for the expected answer (XELITE-PING to XELITE-PONG, XELITE-RT port echoed).
+        /// </summary>
+        private bool Control(string message, string expected)
+        {
+            _controlExpected = expected;
+            _controlReply.Reset();
+            var ok = false;
+            try
+            {
+                for (var i = 0; i < 3 && !ok; i++)
+                {
+                    var writer = new DataWriter();
+                    writer.WriteString(message);
+                    _sendQueue.Add(writer.DetachBuffer());
+                    ok = _controlReply.WaitOne(700);
+                }
             }
+            catch (Exception e)
+            {
+                PluginLog.Write("control " + message + " error: " + PluginLog.Describe(e));
+            }
+            _controlExpected = null;
+            PluginLog.Write("control " + message + ": " + (ok ? "answered" : "no answer"));
+            return ok;
         }
 
         private void Cleanup()
         {
+            if (_sendQueue != null)
+            {
+                _sendQueue.CompleteAdding();
+                _sendQueue = null;
+            }
+            if (_side != null)
+            {
+                _side.Dispose();
+                _side = null;
+            }
             if (_socket != null)
             {
                 _socket.Dispose();
