@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Windows.ApplicationModel.Background;
 using Windows.Networking.Vpn;
 
@@ -11,12 +12,19 @@ namespace Xelite.VpnTask
     public sealed class VpnBackgroundTask : IBackgroundTask
     {
         private static readonly object Gate = new object();
-        private static IVpnPlugIn _plugin;
+        private static XrayVpnPlugin _plugin;
+
+        // Deferrals kept while the tunnel is up. A completed task lets Windows
+        // suspend the host process between events, which freezes the packet
+        // sender, the relay and xelite-core; holding them keeps it running.
+        private static readonly List<BackgroundTaskDeferral> Held = new List<BackgroundTaskDeferral>();
 
         public void Run(IBackgroundTaskInstance taskInstance)
         {
             // Keeps the host process alive until ProcessEventAsync has handled the event.
             var deferral = taskInstance.GetDeferral();
+            taskInstance.Canceled += (sender, reason) => PluginLog.Write("plug-in task canceled: " + reason);
+            var keep = false;
             try
             {
                 lock (Gate)
@@ -28,6 +36,7 @@ namespace Xelite.VpnTask
                     }
                 }
                 VpnChannel.ProcessEventAsync(_plugin, taskInstance.TriggerDetails);
+                keep = _plugin.IsConnected;
             }
             catch (Exception e)
             {
@@ -35,7 +44,22 @@ namespace Xelite.VpnTask
             }
             finally
             {
-                deferral.Complete();
+                lock (Gate)
+                {
+                    if (keep)
+                    {
+                        Held.Add(deferral);
+                    }
+                    else
+                    {
+                        deferral.Complete();
+                        foreach (var held in Held)
+                        {
+                            held.Complete();
+                        }
+                        Held.Clear();
+                    }
+                }
             }
         }
     }

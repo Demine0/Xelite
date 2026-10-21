@@ -31,6 +31,10 @@ namespace Xelite.VpnTask
         private DatagramSocket _socket;
         private CoreProcess _core;
         private RelayServer _relay;
+        private CancellationTokenSource _heartbeat;
+
+        /// <summary>True between a successful Connect and Disconnect.</summary>
+        public bool IsConnected { get; private set; }
 
         // Packets to xelite-core go through this socket, not the VPN transport:
         // Windows binds the transport to the physical interface, where datagrams
@@ -127,6 +131,8 @@ namespace Xelite.VpnTask
                     false);
                 Log(channel, "connected");
                 PluginLog.SetState("connected");
+                IsConnected = true;
+                StartHeartbeat();
             }
             catch (Exception e)
             {
@@ -142,6 +148,7 @@ namespace Xelite.VpnTask
         {
             Log(channel, "disconnect requested");
             PluginLog.SetState("disconnected");
+            IsConnected = false;
             try
             {
                 channel.Stop();
@@ -273,8 +280,37 @@ namespace Xelite.VpnTask
             return ok;
         }
 
+        /// <summary>
+        /// Logs every 5 s while connected. Gaps in these lines mean the host process
+        /// was frozen; the counters show whether packets keep flowing.
+        /// </summary>
+        private void StartHeartbeat()
+        {
+            _heartbeat?.Cancel();
+            var cts = new CancellationTokenSource();
+            _heartbeat = cts;
+            Task.Run(async () =>
+            {
+                try
+                {
+                    while (!cts.IsCancellationRequested)
+                    {
+                        await Task.Delay(5000, cts.Token);
+                        PluginLog.Write("alive: to core " + _sent + ", from core " + _received +
+                                        ", send queue " + (_sendQueue?.Count ?? -1));
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                }
+            });
+        }
+
         private void Cleanup()
         {
+            IsConnected = false;
+            _heartbeat?.Cancel();
+            _heartbeat = null;
             if (_sendQueue != null)
             {
                 _sendQueue.CompleteAdding();
