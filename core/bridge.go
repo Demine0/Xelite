@@ -343,6 +343,13 @@ func (b *bridge) handleUDP(r *udp.ForwarderRequest) bool {
 			idle.Reset(timeout)
 			if id.LocalPort == 53 {
 				b.stats.dnsQueries.Add(1)
+				if b.rejectIPv6 {
+					if resp, ok := aaaaNoData(buf[:n]); ok {
+						b.stats.aaaaBlocked.Add(1)
+						_, _ = local.Write(resp)
+						continue
+					}
+				}
 			}
 			if _, err := remote.Write(buf[:n]); err != nil {
 				return

@@ -19,7 +19,7 @@ It works on Windows 10 Mobile ARM phones (build 15063 or later).
 * **Config editor**: long-press a server → edit opens its Xray outbound as JSON. Edits of subscription servers are saved as a copy in "manual", so updates don't overwrite them
 * Configs from panels written for newer Xray are adapted to v26.2.6: the core carries a backport of the XHTTP seq/session placement fix and reports Xray 26.10.21 in REALITY handshakes, so servers with `minClientVer` accept it (`core/patches`), and the app rewrites `uplinkDataPlacement: "auto"`, `uplinkChunkSize` ranges and the renamed `sessionIDPlacement` / `sessionIDKey`
 * Home screen: live upload/download totals and speed, connection counts, server ping (best of the auto group), and a public-IP check
-* Leak protection: all IPv4 (`0.0.0.0/1` + `128.0.0.0/1`) and IPv6 (`::/1` + `8000::/1`) is routed into the tunnel; IPv6 is rejected by default so apps fall back to IPv4 through the proxy (switch "IPv6 through the proxy" if the server has IPv6)
+* Leak protection: all IPv4 (`0.0.0.0/1` + `128.0.0.0/1`) and IPv6 (`::/1` + `8000::/1`) is routed into the tunnel; IPv6 is rejected by default: AAAA lookups get an empty answer and DNS sent to IPv6 servers is answered via IPv4, so apps use IPv4 through the proxy without timeouts (switch "IPv6 through the proxy" if the server has IPv6)
 * Share links: `vless://` (REALITY, Vision, XHTTP, VLESS encryption), `vmess://`, `trojan://`, `ss://` (incl. 2022), `hysteria2://` (salamander obfs)
 * Transports: raw/tcp (+http header), ws, grpc, httpupgrade, xhttp, hysteria
 * System-wide VPN (all apps), DNS through the tunnel, LAN bypass, optional QUIC block, TCP ping, log viewer
@@ -69,7 +69,7 @@ You need Visual Studio 2019 or 2022 with the **Universal Windows Platform develo
 including ARM support, and **Windows 10 SDK 10.0.19041.0**.
 
 ```powershell
-.\build.ps1                  # Release|ARM  -> dist\Xelite_1.22.0.0_ARM_Test\Xelite_1.22.0.0_ARM.appx
+.\build.ps1                  # Release|ARM  -> dist\Xelite_1.23.0.0_ARM_Test\Xelite_1.23.0.0_ARM.appx
 .\build.ps1 -Platform x64    # PC build, to test the whole flow on a Windows 10/11 desktop
 ```
 
@@ -84,11 +84,11 @@ There is also a GitHub Actions workflow (`.github/workflows/build.yml`) that bui
    **Device discovery** and **Device Portal**.
 2. On a PC, open the Device Portal address the phone shows (e.g. `https://192.168.1.50`). Go to
    **Apps → Install app**, then pick:
-   * the `.appx` from `dist\...\Xelite_1.22.0.0_ARM.appx`
+   * the `.appx` from `dist\...\Xelite_1.23.0.0_ARM.appx`
    * the dependencies from `dist\...\Dependencies\ARM\` (`Microsoft.NET.Native.Framework.2.2`,
      `Microsoft.NET.Native.Runtime.2.2`, `Microsoft.VCLibs.140.00`)
    * the certificate `dist\Xelite.cer`, if the portal asks for it
-3. Alternatively use `WinAppDeployCmd.exe install -file Xelite_1.22.0.0_ARM.appx -ip <phone ip>`
+3. Alternatively use `WinAppDeployCmd.exe install -file Xelite_1.23.0.0_ARM.appx -ip <phone ip>`
    from the Windows 10 SDK.
 
 ## Use

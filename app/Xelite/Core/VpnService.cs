@@ -337,6 +337,7 @@ namespace Xelite.Core
 
         public static async Task DisconnectAsync()
         {
+            AppLog("disconnect requested by the app");
             var profile = await FindProfileAsync();
             if (profile != null)
             {
