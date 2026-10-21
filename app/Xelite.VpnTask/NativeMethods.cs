@@ -15,6 +15,7 @@ namespace Xelite.VpnTask
 
         public const uint CREATE_NO_WINDOW = 0x08000000;
         public const uint CREATE_BREAKAWAY_FROM_JOB = 0x01000000;
+        public const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
         public const uint PROCESS_TERMINATE = 0x0001;
         public const uint SYNCHRONIZE = 0x00100000;
         public const uint WAIT_TIMEOUT = 0x00000102;

@@ -45,23 +45,16 @@ namespace Xelite.VpnTask
             }
             var si = new NativeMethods.STARTUPINFO { cb = Marshal.SizeOf<NativeMethods.STARTUPINFO>() };
             NativeMethods.PROCESS_INFORMATION pi;
-            // Outside the app's job, Windows' app lifecycle manager can't freeze the engine
-            // together with the app; not every job allows it, so fall back to a normal child.
-            if (NativeMethods.CreateProcessW(_exePath, cmd, IntPtr.Zero, IntPtr.Zero, false,
-                    NativeMethods.CREATE_NO_WINDOW | NativeMethods.CREATE_BREAKAWAY_FROM_JOB, IntPtr.Zero, _dataDir, ref si, out pi))
+            var env = BuildEnvironment();
+            try
             {
-                StartMode = "outside the app job";
+                pi = Launch(cmd, env, ref si);
             }
-            else
+            finally
             {
-                var breakawayError = Marshal.GetLastWin32Error();
-                if (!NativeMethods.CreateProcessW(_exePath, cmd, IntPtr.Zero, IntPtr.Zero, false,
-                        NativeMethods.CREATE_NO_WINDOW, IntPtr.Zero, _dataDir, ref si, out pi))
-                {
-                    throw new InvalidOperationException("CreateProcess failed, error " + Marshal.GetLastWin32Error());
-                }
-                StartMode = "inside the app job (breakaway refused, error " + breakawayError + ")";
+                Marshal.FreeHGlobal(env);
             }
+
             NativeMethods.CloseHandle(pi.hThread);
             _process = pi.hProcess;
             File.WriteAllText(PidFile, pi.dwProcessId.ToString());
@@ -100,6 +93,51 @@ namespace Xelite.VpnTask
             }
             Stop();
             throw new TimeoutException("xelite-core did not start in 10 seconds");
+        }
+
+        private NativeMethods.PROCESS_INFORMATION Launch(string cmd, IntPtr env, ref NativeMethods.STARTUPINFO si)
+        {
+            NativeMethods.PROCESS_INFORMATION pi;
+            const uint flags = NativeMethods.CREATE_NO_WINDOW | NativeMethods.CREATE_UNICODE_ENVIRONMENT;
+            // Outside the app's job, Windows' app lifecycle manager can't freeze the engine
+            // together with the app; not every job allows it, so fall back to a normal child.
+            if (NativeMethods.CreateProcessW(_exePath, cmd, IntPtr.Zero, IntPtr.Zero, false,
+                    flags | NativeMethods.CREATE_BREAKAWAY_FROM_JOB, env, _dataDir, ref si, out pi))
+            {
+                StartMode = "outside the app job";
+                return pi;
+            }
+            var breakawayError = Marshal.GetLastWin32Error();
+            if (!NativeMethods.CreateProcessW(_exePath, cmd, IntPtr.Zero, IntPtr.Zero, false,
+                    flags, env, _dataDir, ref si, out pi))
+            {
+                throw new InvalidOperationException("CreateProcess failed, error " + Marshal.GetLastWin32Error());
+            }
+            StartMode = "inside the app job (breakaway refused, error " + breakawayError + ")";
+            return pi;
+        }
+
+        /// <summary>
+        /// The plug-in's environment plus GODEBUG=asyncpreemptoff=1. Go's asynchronous
+        /// preemption (SuspendThread/GetThreadContext) hangs on 32-bit Windows ARM, a
+        /// port Go marks as broken: the first GC stop-the-world never completes and
+        /// every goroutine stalls about a second after start.
+        /// </summary>
+        private static IntPtr BuildEnvironment()
+        {
+            var vars = new System.Collections.Generic.SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (System.Collections.DictionaryEntry e in Environment.GetEnvironmentVariables())
+            {
+                vars[(string)e.Key] = (string)e.Value;
+            }
+            vars["GODEBUG"] = "asyncpreemptoff=1";
+            var block = new System.Text.StringBuilder();
+            foreach (var kv in vars)
+            {
+                block.Append(kv.Key).Append('=').Append(kv.Value).Append('\0');
+            }
+            block.Append('\0');
+            return Marshal.StringToHGlobalUni(block.ToString());
         }
 
         /// <summary>How the process was started, for the log.</summary>
