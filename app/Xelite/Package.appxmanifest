@@ -6,7 +6,7 @@
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   IgnorableNamespaces="uap mp rescap">
 
-  <Identity Name="Xelite.XrayVPN" Publisher="CN=Xelite" Version="1.23.0.0" />
+  <Identity Name="Xelite.XrayVPN" Publisher="CN=Xelite" Version="1.24.0.0" />
 
   <mp:PhoneIdentity PhoneProductId="76e87a7b-34b0-4416-ae95-f9d2f82abab5" PhonePublisherId="00000000-0000-0000-0000-000000000000" />
 
@@ -60,7 +60,8 @@
       </uap:VisualElements>
       <Extensions>
         <!-- The VPN platform only activates "vpnClient" tasks; it must be the only task type here. -->
-        <Extension Category="windows.backgroundTasks" Executable="$targetnametoken$.exe" EntryPoint="Xelite.VpnTask.VpnBackgroundTask">
+        <!-- XeliteVpnHost.exe has no XAML, so Windows does not suspend it together with the app. -->
+        <Extension Category="windows.backgroundTasks" Executable="XeliteVpnHost.exe" EntryPoint="Xelite.VpnTask.VpnBackgroundTask">
           <BackgroundTasks>
             <uap:Task Type="vpnClient" />
           </BackgroundTasks>

@@ -103,6 +103,11 @@
     <Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" />
     <Content Include="Assets\StoreLogo.png" />
     <Content Include="Assets\Wide310x150Logo.png" />
+    <!-- VPN plug-in host without XAML, built by build.ps1 from host\XeliteVpnHost.cpp. -->
+    <Content Include="..\..\build\$(Platform)\XeliteVpnHost.exe">
+      <Link>XeliteVpnHost.exe</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <!-- Go engine (Xray-core + gVisor), built by build-core.sh / build.ps1 per platform. -->
     <Content Include="..\..\build\$(Platform)\xelite-core.exe">
       <Link>xelite-core.exe</Link>

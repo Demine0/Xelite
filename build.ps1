@@ -28,7 +28,20 @@ if (-not (Test-Path $core)) {
     throw "$core is missing. Run ./build-core.sh first (Git Bash, WSL, macOS or Linux)."
 }
 
-# 2. Signing certificate (self-signed, Publisher must match the manifest: CN=Xelite)
+# 2. VPN plug-in host (C++/WinRT, no XAML), see host\XeliteVpnHost.cpp
+$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+$vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+$vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvarsall.bat"
+$hostArch = if ($Platform -eq "ARM") { "x86_arm" } else { "x86_amd64" }
+$hostExe = Join-Path $root "build\$Platform\XeliteVpnHost.exe"
+$hostSrc = Join-Path $root "host\XeliteVpnHost.cpp"
+$hostObj = Join-Path $root "build\$Platform\XeliteVpnHost.obj"
+$cl = "cl /nologo /std:c++17 /EHsc /O2 /MD /DUNICODE /D_UNICODE /DWINAPI_FAMILY=WINAPI_FAMILY_APP " +
+      "/Fo`"$hostObj`" `"$hostSrc`" /link /SUBSYSTEM:WINDOWS /APPCONTAINER WindowsApp.lib /OUT:`"$hostExe`""
+& cmd /c "call `"$vcvars`" $hostArch store 10.0.19041.0 >nul && $cl"
+if ($LASTEXITCODE -or -not (Test-Path $hostExe)) { throw "building XeliteVpnHost.exe failed" }
+
+# 3. Signing certificate (self-signed, Publisher must match the manifest: CN=Xelite)
 $pfx = Join-Path $root "app\Xelite\Xelite_TemporaryKey.pfx"
 $cer = Join-Path $root "dist\Xelite.cer"
 New-Item -ItemType Directory -Force (Join-Path $root "dist") | Out-Null
@@ -44,8 +57,7 @@ if (-not (Test-Path $pfx)) {
     [IO.File]::WriteAllBytes($cer, $existing.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert))
 }
 
-# 3. MSBuild
-$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+# 4. MSBuild
 $msbuild = & $vswhere -latest -requires Microsoft.Component.MSBuild -find "MSBuild\**\Bin\MSBuild.exe" | Select-Object -First 1
 if (-not $msbuild) { throw "MSBuild not found. Install Visual Studio with the UWP workload." }
 
