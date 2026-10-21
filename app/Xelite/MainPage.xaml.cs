@@ -759,6 +759,7 @@ namespace Xelite
             PlatformTransportSwitch.IsOn = s.PlatformTransport;
             XrayDnsSwitch.IsOn = s.XrayDns;
             KeepAliveBox.Text = s.KeepAliveSeconds.ToString();
+            MuxBox.Text = s.MuxConcurrency.ToString();
             UpdateOnStartSwitch.IsOn = s.UpdateOnStart;
             MtuBox.Text = s.Mtu.ToString();
             UserAgentBox.Text = s.UserAgent;
@@ -844,6 +845,11 @@ namespace Xelite
             if (int.TryParse(KeepAliveBox.Text, out keepAlive) && keepAlive >= 1 && keepAlive <= 120)
             {
                 s.KeepAliveSeconds = keepAlive;
+            }
+            int mux;
+            if (int.TryParse(MuxBox.Text, out mux) && mux >= 1 && mux <= 1024)
+            {
+                s.MuxConcurrency = mux;
             }
             s.UpdateOnStart = UpdateOnStartSwitch.IsOn;
             s.SendHwid = SendHwidSwitch.IsOn;

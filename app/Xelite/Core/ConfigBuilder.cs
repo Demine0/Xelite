@@ -42,7 +42,7 @@ namespace Xelite.Core
                 var outbound = BuildOutbound(links[i], dialAddresses[i]);
                 if (settings.PlatformTransport)
                 {
-                    SingleConnection(outbound, settings.KeepAliveSeconds);
+                    SingleConnection(outbound, settings.KeepAliveSeconds, settings.MuxConcurrency);
                 }
                 outbound["tag"] = Str(balanced ? "proxy-" + i : "proxy");
                 outbounds.Add(outbound);
@@ -575,7 +575,7 @@ namespace Xelite.Core
             return dns;
         }
 
-        private static void SingleConnection(JsonObject outbound, int keepAliveSeconds)
+        private static void SingleConnection(JsonObject outbound, int keepAliveSeconds, int muxConcurrency)
         {
             var stream = outbound.GetNamedObject("streamSettings", null);
             var network = stream?.GetNamedString("network", "tcp") ?? "tcp";
@@ -626,7 +626,7 @@ namespace Xelite.Core
                 outbound["mux"] = new JsonObject
                 {
                     ["enabled"] = JsonValue.CreateBooleanValue(true),
-                    ["concurrency"] = JsonValue.CreateNumberValue(8),
+                    ["concurrency"] = JsonValue.CreateNumberValue(muxConcurrency),
                     ["xudpConcurrency"] = JsonValue.CreateNumberValue(16),
                     ["xudpProxyUDP443"] = Str("reject"),
                 };

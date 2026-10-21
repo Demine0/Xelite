@@ -65,6 +65,16 @@ namespace Xelite.Core
             set { Values.Values["keepAlive"] = value; }
         }
 
+        /// <summary>
+        /// Streams per Xray mux connection. A page opens dozens of connections; past this
+        /// limit Xray opens another server connection, which can't ride the VPN transport.
+        /// </summary>
+        public int MuxConcurrency
+        {
+            get { return Get("muxConcurrency", 128); }
+            set { Values.Values["muxConcurrency"] = value; }
+        }
+
         public bool UpdateOnStart
         {
             get { return Get("updateOnStart", true); }

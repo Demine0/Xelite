@@ -64,6 +64,7 @@ namespace Xelite.VpnTask
             _sent = 0;
             _received = 0;
             PluginLog.SetState("connecting");
+            var step = "reading settings";
             try
             {
                 var dataDir = ApplicationData.Current.LocalFolder.Path;
@@ -83,9 +84,11 @@ namespace Xelite.VpnTask
                 Log(channel, "starting xelite-core on 127.0.0.1:" + port);
                 _core = new CoreProcess(Path.Combine(Package.Current.InstalledLocation.Path, "xelite-core.exe"), dataDir);
                 var allowIpv6 = settings.GetNamedBoolean("ipv6", false);
+                step = "starting xelite-core";
                 _core.StartAsync(Path.Combine(dataDir, "config.json"), port, mtu, allowIpv6, _relay.Port,
                     settings.GetNamedBoolean("xrayDns", true)).Wait();
                 Log(channel, "xelite-core ready, started " + _core.StartMode);
+                step = "opening the side socket";
                 OpenSideSocket(port);
                 if (!Control("XELITE-PING", "XELITE-PONG"))
                 {
@@ -105,24 +108,30 @@ namespace Xelite.VpnTask
                 if (server.Length > 0 && serverPort > 0)
                 {
                     _tunnel = new ServerTunnel(server, serverPort);
+                    step = "associating transports";
                     channel.AssociateTransport(_tunnel.Socket, _socket);
                 }
                 else
                 {
                     channel.AssociateTransport(_socket, null);
                 }
+                step = "binding the loopback transport";
                 _socket.BindEndpointAsync(new HostName("127.0.0.1"), "").AsTask().Wait();
+                step = "connecting the loopback transport";
                 _socket.ConnectAsync(new HostName("127.0.0.1"), port.ToString()).AsTask().Wait();
                 var transportPort = _socket.Information.LocalPort;
                 if (_tunnel != null)
                 {
+                    step = "connecting to the server " + _tunnel.Target;
                     _tunnel.ConnectAsync().Wait();
+                    step = "opening the doorbell";
                     _doorbell = new DatagramSocket();
                     _doorbell.ConnectAsync(new HostName("127.0.0.1"), transportPort).AsTask().Wait();
                     _doorbellOut = _doorbell.OutputStream;
                     _relay.Tunnel = _tunnel;
                     _relay.RingDoorbell = RingDoorbell;
-                    _relay.TunnelClosed = reason => TunnelClosed(reason);
+                    var tunnel = _tunnel;
+                    _relay.TunnelClosed = reason => TunnelClosed(tunnel, reason);
                     Log(channel, "server transport connected to " + _tunnel.Target);
                 }
                 var ack = Control("XELITE-RT" + transportPort, "XELITE-RT" + transportPort);
@@ -153,6 +162,7 @@ namespace Xelite.VpnTask
 
                 Log(channel, "routes: include 0.0.0.0/1, 128.0.0.0/1, ::/1, 8000::/1 (ipv6 " + (allowIpv6 ? "proxied" : "rejected") + "); exclude " + string.Join(", ", Strings(settings, "exclude")) +
                              "; dns " + string.Join(", ", Strings(settings, "dns")) + "; mtu " + mtu);
+                step = "starting the tunnel";
                 channel.StartExistingTransports(
                     new List<HostName> { new HostName(TunAddress) },
                     new List<HostName> { new HostName(TunAddress6) },
@@ -170,7 +180,7 @@ namespace Xelite.VpnTask
             catch (Exception e)
             {
                 var inner = e is AggregateException ? e.InnerException ?? e : e;
-                Log(channel, "connect failed: " + PluginLog.Describe(inner));
+                Log(channel, "connect failed while " + step + ": " + PluginLog.Describe(inner));
                 Cleanup();
                 PluginLog.SetState("error: " + inner.Message);
                 channel.TerminateConnection(inner.Message);
@@ -301,9 +311,15 @@ namespace Xelite.VpnTask
             }
         }
 
-        private void TunnelClosed(string reason)
+        private void TunnelClosed(ServerTunnel tunnel, string reason)
         {
-            PluginLog.Write("server connection ended: " + reason + " (down " + _tunnel?.BytesDown + " B, up " + _tunnel?.BytesUp + " B)");
+            if (tunnel != _tunnel || !IsConnected)
+            {
+                // A previous connection's tunnel winding down; must not end the current one.
+                PluginLog.Write("old server connection ended: " + reason);
+                return;
+            }
+            PluginLog.Write("server connection ended: " + reason + " (down " + tunnel.BytesDown + " B, up " + tunnel.BytesUp + " B)");
             // The stream (and TLS session in it) can't be resumed on the platform's
             // transport; end the connection and let the app reconnect.
             PluginLog.SetState("reconnect");
