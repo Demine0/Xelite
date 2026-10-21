@@ -15,6 +15,8 @@ namespace Xelite.VpnTask
 
         public void Run(IBackgroundTaskInstance taskInstance)
         {
+            // Keeps the host process alive until ProcessEventAsync has handled the event.
+            var deferral = taskInstance.GetDeferral();
             try
             {
                 // The app's "test VPN plug-in" starts this task with an ApplicationTrigger
@@ -37,7 +39,10 @@ namespace Xelite.VpnTask
             catch (Exception e)
             {
                 PluginLog.Write("plug-in task failed: " + PluginLog.Describe(e));
-                throw;
+            }
+            finally
+            {
+                deferral.Complete();
             }
         }
     }

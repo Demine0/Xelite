@@ -427,7 +427,7 @@ namespace Xelite.Core
                 VpnPluginPackageFamilyName = Package.Current.Id.FamilyName,
                 AlwaysOn = false,
                 RememberCredentials = false,
-                RequireVpnClientAppUI = false,
+                RequireVpnClientAppUI = true,
             };
             profile.ServerUris.Add(new Uri("https://127.0.0.1"));
             var status = await Call("create VPN profile", a => a.AddProfileFromObjectAsync(profile));
