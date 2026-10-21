@@ -85,7 +85,7 @@ namespace Xelite.VpnTask
                 step = "starting xelite-core";
                 _core.StartAsync(Path.Combine(dataDir, "config.json"), port, mtu, allowIpv6, _relay.Port,
                     settings.GetNamedBoolean("xrayDns", true)).Wait();
-                Log(channel, "xelite-core ready, started " + _core.StartMode);
+                Log(channel, "xelite-core ready");
                 step = "opening the side socket";
                 OpenSideSocket(port);
                 if (!Control("XELITE-PING", "XELITE-PONG"))
@@ -151,8 +151,13 @@ namespace Xelite.VpnTask
                 {
                     dnsServers.Add(new HostName(dns));
                 }
+                // All names (".") resolve through our DNS servers. Empty server lists must be
+                // null (Microsoft's sample: "we are expected to pass nullptr instead of empty
+                // lists"); an empty proxy list made Windows drop the whole assignment, so the
+                // VPN had no IPv4 DNS and apps asked the router, bypassing the tunnel.
                 var domains = new VpnDomainNameAssignment();
-                domains.DomainNameList.Add(new VpnDomainNameInfo(".", VpnDomainNameType.Suffix, dnsServers, new List<HostName>()));
+                domains.DomainNameList.Add(new VpnDomainNameInfo(".", VpnDomainNameType.Suffix,
+                    dnsServers.Count > 0 ? dnsServers : null, null));
 
                 Log(channel, "routes: include 0.0.0.0/1, 128.0.0.0/1, ::/1, 8000::/1 (ipv6 " + (allowIpv6 ? "proxied" : "rejected") + "); exclude " + string.Join(", ", Strings(settings, "exclude")) +
                              "; dns " + string.Join(", ", Strings(settings, "dns")) + "; mtu " + mtu);

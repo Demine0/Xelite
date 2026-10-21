@@ -36,6 +36,21 @@ type stats struct {
 	lastError string
 	lastWrite string
 	samples   []string // first packets from the plug-in, decoded
+	flows     []string // the last finished TCP connections
+}
+
+const maxFlows = 20
+
+// flowEnded records a finished TCP connection: destination, bytes each way and
+// duration, to see in the log whether apps' HTTP/HTTPS requests get answers.
+func (s *stats) flowEnded(dst string, up, down int64, d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.flows = append(s.flows, fmt.Sprintf("%s %s up %d B down %d B in %.1f s",
+		time.Now().Format("15:04:05"), dst, up, down, d.Seconds()))
+	if len(s.flows) > maxFlows {
+		s.flows = s.flows[len(s.flows)-maxFlows:]
+	}
 }
 
 const maxSamples = 6
@@ -70,8 +85,8 @@ func (s *stats) String() string {
 	last := s.lastError
 	s.mu.Unlock()
 	// Fixed "key=value" format: the app parses it for the home screen.
-	line := fmt.Sprintf("t=%s godebug=%s pktIn=%d bytesIn=%d pktOut=%d bytesOut=%d tcp=%d udp=%d dialErrors=%d ipv6Rejected=%d writeErrors=%d relayed=%d",
-		time.Now().Format("15:04:05"), os.Getenv("GODEBUG"), s.pktIn.Load(), s.bytesIn.Load(), s.pktOut.Load(), s.bytesOut.Load(),
+	line := fmt.Sprintf("t=%s pktIn=%d bytesIn=%d pktOut=%d bytesOut=%d tcp=%d udp=%d dialErrors=%d ipv6Rejected=%d writeErrors=%d relayed=%d",
+		time.Now().Format("15:04:05"), s.pktIn.Load(), s.bytesIn.Load(), s.pktOut.Load(), s.bytesOut.Load(),
 		s.tcp.Load(), s.udp.Load(), s.dialErrors.Load(), s.ipv6Rejected.Load(), s.writeErrors.Load(), s.relayed.Load())
 	if last != "" {
 		line += "\nlast dial error: " + last
@@ -82,6 +97,9 @@ func (s *stats) String() string {
 	}
 	for _, sm := range s.samples {
 		line += "\nin: " + sm
+	}
+	for _, f := range s.flows {
+		line += "\nflow: " + f
 	}
 	s.mu.Unlock()
 	return line

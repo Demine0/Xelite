@@ -12,11 +12,8 @@ namespace Xelite.VpnTask
         private const string ProcessThreads = "api-ms-win-core-processthreads-l1-1-0.dll";
         private const string Handle = "api-ms-win-core-handle-l1-1-0.dll";
         private const string Synch = "api-ms-win-core-synch-l1-1-0.dll";
-        private const string ProcessEnvironment = "api-ms-win-core-processenvironment-l1-1-0.dll";
 
         public const uint CREATE_NO_WINDOW = 0x08000000;
-        public const uint CREATE_BREAKAWAY_FROM_JOB = 0x01000000;
-        public const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
         public const uint PROCESS_TERMINATE = 0x0001;
         public const uint SYNCHRONIZE = 0x00100000;
         public const uint WAIT_TIMEOUT = 0x00000102;
@@ -81,15 +78,6 @@ namespace Xelite.VpnTask
         [DllImport(ProcessThreads, SetLastError = true)]
         public static extern bool GetProcessTimes(IntPtr hProcess, out long creationTime, out long exitTime,
             out long kernelTime, out long userTime);
-
-        [DllImport(ProcessEnvironment)]
-        public static extern IntPtr GetEnvironmentStringsW();
-
-        [DllImport(ProcessEnvironment)]
-        public static extern IntPtr GetCommandLineW();
-
-        [DllImport(ProcessEnvironment)]
-        public static extern bool FreeEnvironmentStringsW(IntPtr block);
 
         [DllImport(Synch)]
         public static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);

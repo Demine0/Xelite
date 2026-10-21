@@ -284,18 +284,25 @@ func (b *bridge) handleTCP(r *tcp.ForwarderRequest) {
 			return
 		}
 		defer remote.Close()
+		start := time.Now()
+		var up, down int64
 		done := make(chan struct{}, 2)
 		go func() {
-			_, _ = io.Copy(remote, local)
+			up, _ = io.Copy(remote, local)
+			// Pass the app's half-close on, so servers that wait for EOF answer.
+			if cw, ok := remote.(interface{ CloseWrite() error }); ok {
+				_ = cw.CloseWrite()
+			}
 			done <- struct{}{}
 		}()
 		go func() {
-			_, _ = io.Copy(local, remote)
+			down, _ = io.Copy(local, remote)
 			local.CloseWrite()
 			done <- struct{}{}
 		}()
 		<-done
 		<-done
+		b.stats.flowEnded(dst.String(), up, down, time.Since(start))
 	}()
 }
 

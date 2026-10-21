@@ -49,14 +49,10 @@ namespace Xelite.VpnTask
             }
             var si = new NativeMethods.STARTUPINFO { cb = Marshal.SizeOf<NativeMethods.STARTUPINFO>() };
             NativeMethods.PROCESS_INFORMATION pi;
-            var env = BuildEnvironment();
-            try
+            if (!NativeMethods.CreateProcessW(_exePath, cmd, IntPtr.Zero, IntPtr.Zero, false,
+                    NativeMethods.CREATE_NO_WINDOW, IntPtr.Zero, _dataDir, ref si, out pi))
             {
-                pi = Launch(cmd, env, ref si);
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(env);
+                throw new InvalidOperationException("CreateProcess failed, error " + Marshal.GetLastWin32Error());
             }
 
             NativeMethods.CloseHandle(pi.hThread);
@@ -98,82 +94,6 @@ namespace Xelite.VpnTask
             Stop();
             throw new TimeoutException("xelite-core did not start in 10 seconds");
         }
-
-        private NativeMethods.PROCESS_INFORMATION Launch(string cmd, IntPtr env, ref NativeMethods.STARTUPINFO si)
-        {
-            NativeMethods.PROCESS_INFORMATION pi;
-            const uint flags = NativeMethods.CREATE_NO_WINDOW | NativeMethods.CREATE_UNICODE_ENVIRONMENT;
-            // Outside the app's job, Windows' app lifecycle manager can't freeze the engine
-            // together with the app; not every job allows it, so fall back to a normal child.
-            if (NativeMethods.CreateProcessW(_exePath, cmd, IntPtr.Zero, IntPtr.Zero, false,
-                    flags | NativeMethods.CREATE_BREAKAWAY_FROM_JOB, env, _dataDir, ref si, out pi))
-            {
-                StartMode = "outside the app job";
-                return pi;
-            }
-            var breakawayError = Marshal.GetLastWin32Error();
-            if (!NativeMethods.CreateProcessW(_exePath, cmd, IntPtr.Zero, IntPtr.Zero, false,
-                    flags, env, _dataDir, ref si, out pi))
-            {
-                throw new InvalidOperationException("CreateProcess failed, error " + Marshal.GetLastWin32Error());
-            }
-            StartMode = "inside the app job (breakaway refused, error " + breakawayError + ")";
-            return pi;
-        }
-
-        /// <summary>
-        /// The plug-in's environment plus GODEBUG=asyncpreemptoff=1. Go's asynchronous
-        /// preemption (SuspendThread/GetThreadContext) hangs on 32-bit Windows ARM, a
-        /// port Go marks as broken: the first GC stop-the-world never completes and
-        /// every goroutine stalls about a second after start.
-        /// </summary>
-        private static IntPtr BuildEnvironment()
-        {
-            // Copy the real block: .NET's Environment API returns too little in the
-            // sandbox, and without SystemRoot Winsock fails (WSAPROVIDERFAILEDINIT).
-            var vars = new System.Collections.Generic.SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            var raw = NativeMethods.GetEnvironmentStringsW();
-            if (raw != IntPtr.Zero)
-            {
-                try
-                {
-                    var p = raw;
-                    while (true)
-                    {
-                        var entry = Marshal.PtrToStringUni(p);
-                        if (string.IsNullOrEmpty(entry))
-                        {
-                            break;
-                        }
-                        var eq = entry.IndexOf('=', 1); // entries like "=C:=C:\" start with '='
-                        if (eq > 0)
-                        {
-                            vars[entry.Substring(0, eq)] = entry.Substring(eq + 1);
-                        }
-                        p = IntPtr.Add(p, (entry.Length + 1) * 2);
-                    }
-                }
-                finally
-                {
-                    NativeMethods.FreeEnvironmentStringsW(raw);
-                }
-            }
-            if (!vars.ContainsKey("SystemRoot"))
-            {
-                vars["SystemRoot"] = @"C:\Windows";
-            }
-            vars["GODEBUG"] = "asyncpreemptoff=1";
-            var block = new System.Text.StringBuilder();
-            foreach (var kv in vars)
-            {
-                block.Append(kv.Key).Append('=').Append(kv.Value).Append('\0');
-            }
-            block.Append('\0');
-            return Marshal.StringToHGlobalUni(block.ToString());
-        }
-
-        /// <summary>How the process was started, for the log.</summary>
-        public string StartMode { get; private set; }
 
         /// <summary>CPU time used so far in ms, or -1 if the process has exited.</summary>
         public long CpuMilliseconds()
