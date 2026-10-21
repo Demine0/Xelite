@@ -46,6 +46,8 @@ var (
 	pingMagic    = []byte("XELITE-PING")
 	pongMagic    = []byte("XELITE-PONG")
 	replyToMagic = []byte("XELITE-RT") // followed by the port to send replies to
+	doorbellReq  = []byte("XELITE-DB")
+	doorbellTag  = []byte("XLT0")
 
 	// packetTag prefixes every IP packet sent to the reply-to transport.
 	packetTag = []byte("XLT1")
@@ -58,6 +60,14 @@ func (b *bridge) handleControl(msg []byte, from *stdnet.UDPAddr) {
 		// Loopback test: echo so the plug-in knows datagrams pass both ways.
 		_, _ = b.conn.WriteToUDP(pongMagic, from)
 		b.control.Store(from)
+	case bytes.HasPrefix(msg, doorbellReq):
+		// The plug-in has Xray upload queued and needs a Decapsulate call to send it.
+		// Its optional transport is connected to our port and drops datagrams from
+		// anywhere else, so the doorbell has to come from us.
+		if peer := b.peer.Load(); peer != nil && b.fixedPeer.Load() {
+			b.stats.doorbells.Add(1)
+			_, _ = b.conn.WriteToUDP(doorbellTag, peer)
+		}
 	case bytes.HasPrefix(msg, replyToMagic):
 		// The plug-in sends packets from its own socket, because Windows binds
 		// the VPN transport socket to the physical interface, where loopback

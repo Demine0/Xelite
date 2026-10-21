@@ -29,6 +29,7 @@ type stats struct {
 	dns6Redirected atomic.Uint64 // DNS flows to IPv6 servers answered via IPv4
 	aaaaBlocked    atomic.Uint64 // AAAA queries answered locally with no records
 	dohErrors      atomic.Uint64
+	doorbells      atomic.Uint64
 	lastDoH        atomic.Pointer[string]
 
 	mu        sync.Mutex
@@ -171,9 +172,9 @@ func (b *bridge) heartbeatLoop(statsErr func() string) {
 		if to == nil {
 			continue
 		}
-		msg := fmt.Sprintf("XELITE-HB %d pktIn=%d pktOut=%d tcp=%d udp=%d relayed=%d dnsQ=%d dnsA=%d dns6=%d aaaa=%d dohErr=%d lastDoH=%s statsErr=%s",
+		msg := fmt.Sprintf("XELITE-HB %d pktIn=%d pktOut=%d tcp=%d udp=%d relayed=%d dnsQ=%d dnsA=%d dns6=%d aaaa=%d dohErr=%d lastDoH=%s bells=%d statsErr=%s",
 			n, b.stats.pktIn.Load(), b.stats.pktOut.Load(), b.stats.tcp.Load(), b.stats.udp.Load(),
-			b.stats.relayed.Load(), b.stats.dnsQueries.Load(), b.stats.dnsAnswers.Load(), b.stats.dns6Redirected.Load(), b.stats.aaaaBlocked.Load(), b.stats.dohErrors.Load(), b.stats.lastDoHError(), statsErr())
+			b.stats.relayed.Load(), b.stats.dnsQueries.Load(), b.stats.dnsAnswers.Load(), b.stats.dns6Redirected.Load(), b.stats.aaaaBlocked.Load(), b.stats.dohErrors.Load(), b.stats.lastDoHError(), b.stats.doorbells.Load(), statsErr())
 		_, _ = b.conn.WriteToUDP([]byte(msg), to)
 	}
 }

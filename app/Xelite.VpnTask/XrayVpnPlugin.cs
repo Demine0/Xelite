@@ -41,8 +41,6 @@ namespace Xelite.VpnTask
         // to 127.0.0.1 never arrive. Replies come back on the transport.
         private DatagramSocket _side;
         private ServerTunnel _tunnel;
-        private DatagramSocket _doorbell;
-        private IOutputStream _doorbellOut;
         private VpnChannel _channel;
         private BlockingCollection<IBuffer> _sendQueue;
         private readonly AutoResetEvent _controlReply = new AutoResetEvent(false);
@@ -124,10 +122,6 @@ namespace Xelite.VpnTask
                 {
                     step = "connecting to the server " + _tunnel.Target;
                     _tunnel.ConnectAsync().Wait();
-                    step = "opening the doorbell";
-                    _doorbell = new DatagramSocket();
-                    _doorbell.ConnectAsync(new HostName("127.0.0.1"), transportPort).AsTask().Wait();
-                    _doorbellOut = _doorbell.OutputStream;
                     _relay.Tunnel = _tunnel;
                     _relay.RingDoorbell = RingDoorbell;
                     var tunnel = _tunnel;
@@ -297,14 +291,18 @@ namespace Xelite.VpnTask
             return head[3] == (byte)'1' ? 1 : head[3] == (byte)'0' && buffer.Length == 4 ? 2 : 0;
         }
 
-        private static readonly IBuffer DoorbellPayload = System.Text.Encoding.ASCII.GetBytes("XLT0").AsBuffer();
-
-        /// <summary>Sends a datagram to our optional transport, so the platform calls Decapsulate soon.</summary>
+        /// <summary>
+        /// Asks xelite-core to send "XLT0" to our optional transport, so the platform calls
+        /// Decapsulate soon and queued upload goes out. The transport is connected to the
+        /// core's port and drops datagrams from any other socket, so we can't ring it ourselves.
+        /// </summary>
         private void RingDoorbell()
         {
             try
             {
-                var unused = _doorbellOut?.WriteAsync(DoorbellPayload);
+                var writer = new DataWriter();
+                writer.WriteString("XELITE-DB");
+                _sendQueue?.TryAdd(writer.DetachBuffer());
             }
             catch (Exception)
             {
@@ -441,9 +439,6 @@ namespace Xelite.VpnTask
 
         private void Cleanup()
         {
-            _doorbell?.Dispose();
-            _doorbell = null;
-            _doorbellOut = null;
             _tunnel?.Dispose();
             _tunnel = null;
             IsConnected = false;
