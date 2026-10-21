@@ -25,7 +25,7 @@ namespace Xelite.VpnTask
         private string StatsFile => Path.Combine(_dataDir, "core.stats");
 
         /// <summary>Starts the core and waits until it reports "ready".</summary>
-        public async Task StartAsync(string configPath, int port, int mtu, bool allowIpv6)
+        public async Task StartAsync(string configPath, int port, int mtu, bool allowIpv6, int relayPort)
         {
             KillStale();
             if (File.Exists(StatusFile))
@@ -38,6 +38,10 @@ namespace Xelite.VpnTask
             if (allowIpv6)
             {
                 cmd += " -ipv6";
+            }
+            if (relayPort > 0)
+            {
+                cmd += " -relay " + relayPort;
             }
             var si = new NativeMethods.STARTUPINFO { cb = Marshal.SizeOf<NativeMethods.STARTUPINFO>() };
             NativeMethods.PROCESS_INFORMATION pi;

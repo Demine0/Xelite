@@ -30,6 +30,7 @@ namespace Xelite.VpnTask
 
         private DatagramSocket _socket;
         private CoreProcess _core;
+        private RelayServer _relay;
 
         // Packets to xelite-core go through this socket, not the VPN transport:
         // Windows binds the transport to the physical interface, where datagrams
@@ -64,10 +65,15 @@ namespace Xelite.VpnTask
                     port = new Random().Next(20000, 40000);
                 }
 
+                // xelite-core may not open internet sockets itself; it dials through this relay.
+                _relay = new RelayServer();
+                _relay.StartAsync().Wait();
+                Log(channel, "relay listening on 127.0.0.1:" + _relay.Port);
+
                 Log(channel, "starting xelite-core on 127.0.0.1:" + port);
                 _core = new CoreProcess(Path.Combine(Package.Current.InstalledLocation.Path, "xelite-core.exe"), dataDir);
                 var allowIpv6 = settings.GetNamedBoolean("ipv6", false);
-                _core.StartAsync(Path.Combine(dataDir, "config.json"), port, mtu, allowIpv6).Wait();
+                _core.StartAsync(Path.Combine(dataDir, "config.json"), port, mtu, allowIpv6, _relay.Port).Wait();
                 Log(channel, "xelite-core ready");
                 OpenSideSocket(port);
                 if (!Control("XELITE-PING", "XELITE-PONG"))
@@ -288,6 +294,11 @@ namespace Xelite.VpnTask
             {
                 _core.Stop();
                 _core = null;
+            }
+            if (_relay != null)
+            {
+                _relay.Dispose();
+                _relay = null;
             }
         }
 

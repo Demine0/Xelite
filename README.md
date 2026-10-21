@@ -44,6 +44,10 @@ It works on Windows 10 Mobile ARM phones (build 15063 or later).
 * `app/Xelite/` is the phone UI (Pivot: servers / subscriptions / settings), the link parser and the config builder.
 * The server's IP is resolved before connecting and excluded from the tunnel, so Xray's own traffic
   doesn't loop back into the VPN.
+* Xray does not open internet sockets itself: on Windows 10 Mobile a process started by the VPN plug-in gets
+  WSAEACCES on connect. Its system dialer is replaced (`core/relay.go`) by a relay to the plug-in
+  (`RelayServer.cs`), which opens each TCP/UDP connection with a WinRT socket and pipes the bytes.
+  Transports that open their own UDP sockets (hysteria2/QUIC) are not relayed yet.
 
 Why a separate `.exe` instead of a DLL: Go dropped `windows/arm` (32-bit) in 1.26. Go 1.25 still has it,
 but it is a "broken" port without cgo, so `-buildmode=c-shared` is unavailable. The plug-in therefore
@@ -65,7 +69,7 @@ You need Visual Studio 2019 or 2022 with the **Universal Windows Platform develo
 including ARM support, and **Windows 10 SDK 10.0.19041.0**.
 
 ```powershell
-.\build.ps1                  # Release|ARM  -> dist\Xelite_1.11.0.0_ARM_Test\Xelite_1.11.0.0_ARM.appx
+.\build.ps1                  # Release|ARM  -> dist\Xelite_1.12.0.0_ARM_Test\Xelite_1.12.0.0_ARM.appx
 .\build.ps1 -Platform x64    # PC build, to test the whole flow on a Windows 10/11 desktop
 ```
 
@@ -80,11 +84,11 @@ There is also a GitHub Actions workflow (`.github/workflows/build.yml`) that bui
    **Device discovery** and **Device Portal**.
 2. On a PC, open the Device Portal address the phone shows (e.g. `https://192.168.1.50`). Go to
    **Apps → Install app**, then pick:
-   * the `.appx` from `dist\...\Xelite_1.11.0.0_ARM.appx`
+   * the `.appx` from `dist\...\Xelite_1.12.0.0_ARM.appx`
    * the dependencies from `dist\...\Dependencies\ARM\` (`Microsoft.NET.Native.Framework.2.2`,
      `Microsoft.NET.Native.Runtime.2.2`, `Microsoft.VCLibs.140.00`)
    * the certificate `dist\Xelite.cer`, if the portal asks for it
-3. Alternatively use `WinAppDeployCmd.exe install -file Xelite_1.11.0.0_ARM.appx -ip <phone ip>`
+3. Alternatively use `WinAppDeployCmd.exe install -file Xelite_1.12.0.0_ARM.appx -ip <phone ip>`
    from the Windows 10 SDK.
 
 ## Use

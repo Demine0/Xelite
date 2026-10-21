@@ -75,7 +75,7 @@ type bridge struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	once   sync.Once
-	stats  stats
+	stats  *stats
 
 	// rejectIPv6 refuses IPv6 flows captured by the tunnel (leak protection).
 	rejectIPv6 bool
@@ -85,7 +85,7 @@ type bridge struct {
 	fixedPeer atomic.Bool
 }
 
-func newBridge(inst *core.Instance, port int, mtu uint32, rejectIPv6 bool) (*bridge, error) {
+func newBridge(inst *core.Instance, port int, mtu uint32, rejectIPv6 bool, st *stats) (*bridge, error) {
 	conn, err := stdnet.ListenUDP("udp4", &stdnet.UDPAddr{IP: stdnet.IPv4(127, 0, 0, 1), Port: port})
 	if err != nil {
 		return nil, err
@@ -104,7 +104,7 @@ func newBridge(inst *core.Instance, port int, mtu uint32, rejectIPv6 bool) (*bri
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	b := &bridge{inst: inst, conn: conn, ep: ep, stack: s, ctx: ctx, cancel: cancel, rejectIPv6: rejectIPv6}
+	b := &bridge{inst: inst, conn: conn, ep: ep, stack: s, ctx: ctx, cancel: cancel, rejectIPv6: rejectIPv6, stats: st}
 
 	tcpForwarder := tcp.NewForwarder(s, 0, 2048, b.handleTCP)
 	s.SetTransportProtocolHandler(tcp.ProtocolNumber, tcpForwarder.HandlePacket)

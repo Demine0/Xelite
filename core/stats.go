@@ -21,6 +21,7 @@ type stats struct {
 	ipv6Rejected      atomic.Uint64
 
 	writeErrors atomic.Uint64
+	relayed     atomic.Uint64 // outbound connections opened through the plug-in relay
 
 	mu        sync.Mutex
 	lastError string
@@ -60,9 +61,9 @@ func (s *stats) String() string {
 	last := s.lastError
 	s.mu.Unlock()
 	// Fixed "key=value" format: the app parses it for the home screen.
-	line := fmt.Sprintf("pktIn=%d bytesIn=%d pktOut=%d bytesOut=%d tcp=%d udp=%d dialErrors=%d ipv6Rejected=%d writeErrors=%d",
+	line := fmt.Sprintf("pktIn=%d bytesIn=%d pktOut=%d bytesOut=%d tcp=%d udp=%d dialErrors=%d ipv6Rejected=%d writeErrors=%d relayed=%d",
 		s.pktIn.Load(), s.bytesIn.Load(), s.pktOut.Load(), s.bytesOut.Load(),
-		s.tcp.Load(), s.udp.Load(), s.dialErrors.Load(), s.ipv6Rejected.Load(), s.writeErrors.Load())
+		s.tcp.Load(), s.udp.Load(), s.dialErrors.Load(), s.ipv6Rejected.Load(), s.writeErrors.Load(), s.relayed.Load())
 	if last != "" {
 		line += "\nlast dial error: " + last
 	}

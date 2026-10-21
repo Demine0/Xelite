@@ -15,6 +15,7 @@ import (
 
 	"github.com/xtls/xray-core/core"
 	_ "github.com/xtls/xray-core/main/distro/all"
+	"github.com/xtls/xray-core/transport/internet"
 )
 
 func main() {
@@ -25,6 +26,7 @@ func main() {
 	statsPath := flag.String("stats", "", "file to write traffic counters to every few seconds")
 	ppid := flag.Int("ppid", 0, "exit when the process with this PID exits")
 	allowIPv6 := flag.Bool("ipv6", false, "proxy IPv6 flows instead of rejecting them")
+	relayPort := flag.Int("relay", 0, "open outbound connections through the VPN plug-in's relay on this loopback port")
 	flag.Parse()
 
 	writeStatus := func(s string) {
@@ -42,13 +44,19 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
+	// Created before Xray starts so the relay dialer can count into it.
+	st := &stats{}
+	if *relayPort != 0 {
+		internet.UseAlternativeSystemDialer(&relayDialer{addr: fmt.Sprintf("127.0.0.1:%d", *relayPort), stats: st})
+	}
+
 	inst, err := core.StartInstance("json", cfg)
 	if err != nil {
 		fail(err)
 	}
 	defer inst.Close()
 
-	b, err := newBridge(inst, *port, uint32(*mtu), !*allowIPv6)
+	b, err := newBridge(inst, *port, uint32(*mtu), !*allowIPv6, st)
 	if err != nil {
 		fail(err)
 	}
