@@ -41,6 +41,30 @@ namespace Xelite.Core
             set { Values.Values["ipv6"] = value; }
         }
 
+        /// <summary>
+        /// Carry the server connection on the VPN's own transport so server replies wake
+        /// the plug-in (needed on Windows 10 Mobile, see ServerTunnel). Off: relay only.
+        /// </summary>
+        public bool PlatformTransport
+        {
+            get { return Get("platformTransport", true); }
+            set { Values.Values["platformTransport"] = value; }
+        }
+
+        /// <summary>Answer apps' DNS with Xray's DNS over HTTPS through the proxy instead of UDP.</summary>
+        public bool XrayDns
+        {
+            get { return Get("xrayDns", true); }
+            set { Values.Values["xrayDns"] = value; }
+        }
+
+        /// <summary>Seconds between HTTP/2 pings that keep the single server connection open.</summary>
+        public int KeepAliveSeconds
+        {
+            get { return Get("keepAlive", 4); }
+            set { Values.Values["keepAlive"] = value; }
+        }
+
         public bool UpdateOnStart
         {
             get { return Get("updateOnStart", true); }

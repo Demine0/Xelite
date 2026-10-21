@@ -210,6 +210,15 @@
 
                         <ToggleSwitch x:Name="BypassLanSwitch" Header="bypass local network" Toggled="Settings_Changed" />
                         <ToggleSwitch x:Name="BlockQuicSwitch" Header="block QUIC (UDP 443)" Toggled="Settings_Changed" />
+                        <ToggleSwitch x:Name="PlatformTransportSwitch" Header="server connection on the VPN transport"
+                                      Toggled="Settings_Changed" />
+                        <TextBlock Style="{StaticResource ItemSubtitle}" TextWrapping="Wrap" Margin="0,-4,0,12"
+                                   Text="on: Windows wakes the VPN for every server reply, so it keeps working while you use other apps. Xray uses one connection (XHTTP pinned, mux for others). off: older relay mode." />
+                        <ToggleSwitch x:Name="XrayDnsSwitch" Header="DNS through Xray (DoH)" Toggled="Settings_Changed" />
+                        <TextBlock Style="{StaticResource ItemSubtitle}" TextWrapping="Wrap" Margin="0,-4,0,12"
+                                   Text="on: apps' DNS is answered by Xray over HTTPS to the DNS servers below, through the proxy. off: DNS goes through the proxy as plain UDP." />
+                        <TextBox x:Name="KeepAliveBox" Header="keep-alive interval (seconds)" InputScope="Number"
+                                 Margin="0,0,0,12" LostFocus="Settings_Changed" />
                         <ToggleSwitch x:Name="Ipv6Switch" Header="IPv6 through the proxy" Toggled="Settings_Changed" />
                         <TextBlock Style="{StaticResource ItemSubtitle}" TextWrapping="Wrap" Margin="0,-4,0,12"
                                    Text="off: IPv6 is blocked so it can't leak past the VPN, and apps use IPv4. turn on only if your server has IPv6." />

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	stderrors "errors"
 	"io"
 	stdnet "net"
 	"strconv"
@@ -14,6 +15,7 @@ import (
 	xnet "github.com/xtls/xray-core/common/net"
 	"github.com/xtls/xray-core/common/session"
 	"github.com/xtls/xray-core/core"
+	"github.com/xtls/xray-core/features/dns"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -91,6 +93,9 @@ type bridge struct {
 	// reply address (XELITE-RT); packets then arrive from a different socket.
 	fixedPeer atomic.Bool
 
+	// resolver answers apps' DNS queries with Xray's DNS (DoH through the proxy).
+	resolver dns.Client
+
 	// control is the plug-in's side socket, where heartbeats go.
 	control atomic.Pointer[stdnet.UDPAddr]
 }
@@ -121,6 +126,9 @@ func newBridge(inst *core.Instance, port int, mtu uint32, rejectIPv6 bool, st *s
 	udpForwarder := udp.NewForwarder(s, b.handleUDP)
 	s.SetTransportProtocolHandler(udp.ProtocolNumber, udpForwarder.HandlePacket)
 
+	if c, ok := inst.GetFeature(dns.ClientType()).(dns.Client); ok && useXrayDNS {
+		b.resolver = c
+	}
 	go b.readLoop()
 	go b.writeLoop()
 	return b, nil
@@ -303,6 +311,10 @@ func (b *bridge) handleUDP(r *udp.ForwarderRequest) bool {
 	local := gonet.NewUDPConn(&wq, ep)
 
 	src := xnet.UDPDestination(xnet.IPAddress(id.RemoteAddress.AsSlice()), xnet.Port(id.RemotePort))
+	if id.LocalPort == 53 && b.resolver != nil {
+		go b.serveDNS(local)
+		return true
+	}
 	timeout := udpIdleTimeout
 	if id.LocalPort == 53 {
 		timeout = dnsIdleTimeout
@@ -375,4 +387,70 @@ func (b *bridge) Close() {
 		b.ep.Close()
 		b.stack.Close()
 	})
+}
+
+// serveDNS answers the DNS queries of one app socket (a UDP flow to port 53)
+// with DoH, each query in parallel; the flow ends after dnsIdleTimeout.
+func (b *bridge) serveDNS(local *gonet.UDPConn) {
+	defer local.Close()
+	buf := make([]byte, 4096)
+	for {
+		_ = local.SetReadDeadline(time.Now().Add(dnsIdleTimeout))
+		n, err := local.Read(buf)
+		if err != nil {
+			return
+		}
+		b.stats.dnsQueries.Add(1)
+		q := append([]byte(nil), buf[:n]...)
+		if b.rejectIPv6 {
+			if resp, ok := aaaaNoData(q); ok {
+				b.stats.aaaaBlocked.Add(1)
+				_, _ = local.Write(resp)
+				continue
+			}
+		}
+		go func() {
+			resp, err := b.resolve(q)
+			if err != nil {
+				b.stats.dohFailed(err)
+				return
+			}
+			b.stats.dnsAnswers.Add(1)
+			_, _ = local.Write(resp)
+		}()
+	}
+}
+
+// resolve answers one DNS query with Xray's DNS client. Each query used to be
+// its own UDP flow through the proxy (a new XHTTP request), which the
+// event-driven VPN tunnel turned around too slowly: lookups timed out and Edge
+// showed "can't reach this page". Xray's DoH client reuses one connection.
+func (b *bridge) resolve(q []byte) ([]byte, error) {
+	name, qtype, end, ok := dnsQuestion(q)
+	if !ok {
+		return nil, errors.New("unparsable DNS query")
+	}
+	if qtype != dnsTypeA && qtype != dnsTypeAAAA {
+		return dnsResponse(q, end, qtype, nil, 0, 0), nil // NODATA for HTTPS/SVCB/MX/...
+	}
+	option := dns.IPOption{IPv4Enable: qtype == dnsTypeA, IPv6Enable: qtype == dnsTypeAAAA}
+	ips, ttl, err := b.resolver.LookupIP(name, option)
+	if err != nil {
+		if stderrors.Is(err, dns.ErrEmptyResponse) {
+			return dnsResponse(q, end, qtype, nil, 60, 0), nil
+		}
+		return dnsResponse(q, end, qtype, nil, 0, 3), err // NXDOMAIN-ish, but report the error
+	}
+	if ttl == 0 || ttl > 600 {
+		ttl = 300
+	}
+	var raw [][]byte
+	for _, ip := range ips {
+		if v4 := ip.To4(); qtype == dnsTypeA && v4 != nil {
+			raw = append(raw, v4)
+		} else if qtype == dnsTypeAAAA && v4 == nil && len(ip) == 16 {
+			raw = append(raw, ip)
+		}
+	}
+	return dnsResponse(q, end, qtype, raw, ttl, 0), nil
 }

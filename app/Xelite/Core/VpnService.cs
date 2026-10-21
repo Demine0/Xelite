@@ -286,7 +286,8 @@ namespace Xelite.Core
                 ["dns"] = dns,
                 ["exclude"] = exclude,
                 // The plug-in opens this connection itself as the VPN's main transport (TCP only).
-                ["server"] = JsonValue.CreateStringValue(links[0].Protocol == "hysteria2" ? "" : ips[0]),
+                ["server"] = JsonValue.CreateStringValue(links[0].Protocol == "hysteria2" || !settings.PlatformTransport ? "" : ips[0]),
+                ["xrayDns"] = JsonValue.CreateBooleanValue(settings.XrayDns),
                 ["serverPort"] = JsonValue.CreateNumberValue(links[0].Port),
             };
             File.WriteAllText(Path.Combine(DataDir, "vpn.json"), vpn.Stringify());

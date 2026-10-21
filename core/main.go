@@ -18,6 +18,9 @@ import (
 	"github.com/xtls/xray-core/transport/internet"
 )
 
+// useXrayDNS makes the bridge answer DNS queries itself (see bridge.resolve).
+var useXrayDNS = true
+
 func main() {
 	configPath := flag.String("config", "config.json", "path to Xray JSON config")
 	port := flag.Int("port", 10808, "loopback UDP port used for the packet bridge")
@@ -26,6 +29,7 @@ func main() {
 	statsPath := flag.String("stats", "", "file to write traffic counters to every few seconds")
 	ppid := flag.Int("ppid", 0, "exit when the process with this PID exits")
 	allowIPv6 := flag.Bool("ipv6", false, "proxy IPv6 flows instead of rejecting them")
+	flag.BoolVar(&useXrayDNS, "xraydns", true, "answer apps' DNS queries with Xray's DNS (DoH through the proxy) instead of relaying them as UDP")
 	relayPort := flag.Int("relay", 0, "open outbound connections through the VPN plug-in's relay on this loopback port")
 	flag.Parse()
 

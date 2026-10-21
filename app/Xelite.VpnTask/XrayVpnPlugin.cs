@@ -83,7 +83,8 @@ namespace Xelite.VpnTask
                 Log(channel, "starting xelite-core on 127.0.0.1:" + port);
                 _core = new CoreProcess(Path.Combine(Package.Current.InstalledLocation.Path, "xelite-core.exe"), dataDir);
                 var allowIpv6 = settings.GetNamedBoolean("ipv6", false);
-                _core.StartAsync(Path.Combine(dataDir, "config.json"), port, mtu, allowIpv6, _relay.Port).Wait();
+                _core.StartAsync(Path.Combine(dataDir, "config.json"), port, mtu, allowIpv6, _relay.Port,
+                    settings.GetNamedBoolean("xrayDns", true)).Wait();
                 Log(channel, "xelite-core ready, started " + _core.StartMode);
                 OpenSideSocket(port);
                 if (!Control("XELITE-PING", "XELITE-PONG"))

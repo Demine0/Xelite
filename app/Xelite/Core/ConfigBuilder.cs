@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Windows.Data.Json;
 
 namespace Xelite.Core
@@ -31,7 +32,7 @@ namespace Xelite.Core
                     ["error"] = Str(logPath),
                     ["access"] = Str("none"),
                 },
-                ["dns"] = new JsonObject { ["servers"] = StrArray(settings.DnsServers) },
+                ["dns"] = BuildDns(settings),
             };
 
             var balanced = links.Count > 1;
@@ -39,7 +40,10 @@ namespace Xelite.Core
             for (var i = 0; i < links.Count; i++)
             {
                 var outbound = BuildOutbound(links[i], dialAddresses[i]);
-                SingleConnection(outbound);
+                if (settings.PlatformTransport)
+                {
+                    SingleConnection(outbound, settings.KeepAliveSeconds);
+                }
                 outbound["tag"] = Str(balanced ? "proxy-" + i : "proxy");
                 outbounds.Add(outbound);
             }
@@ -554,7 +558,24 @@ namespace Xelite.Core
         /// XHTTP: one HTTP/2 connection that is never rotated. Others: Xray mux
         /// (not with XTLS Vision, which does not support it).
         /// </summary>
-        private static void SingleConnection(JsonObject outbound)
+        /// <summary>
+        /// Xray's DNS: with "DNS through Xray" on, xelite-core answers apps' queries with it,
+        /// as DNS over HTTPS to the configured servers through the proxy.
+        /// </summary>
+        private static JsonObject BuildDns(AppSettings settings)
+        {
+            var servers = settings.XrayDns
+                ? settings.DnsServers.Select(ip => "https://" + ip.Trim() + "/dns-query")
+                : settings.DnsServers;
+            var dns = new JsonObject { ["servers"] = StrArray(servers) };
+            if (!settings.AllowIpv6)
+            {
+                dns["queryStrategy"] = Str("UseIPv4");
+            }
+            return dns;
+        }
+
+        private static void SingleConnection(JsonObject outbound, int keepAliveSeconds)
         {
             var stream = outbound.GetNamedObject("streamSettings", null);
             var network = stream?.GetNamedString("network", "tcp") ?? "tcp";
@@ -579,6 +600,9 @@ namespace Xelite.Core
                     ["cMaxReuseTimes"] = JsonValue.CreateNumberValue(0),
                     ["hMaxRequestTimes"] = Str("1000000"),
                     ["hMaxReusableSecs"] = Str("86400"),
+                    // Servers close idle HTTP/2 connections within seconds, and the VPN's
+                    // transport can't take a new one; pings keep it open.
+                    ["hKeepAlivePeriod"] = JsonValue.CreateNumberValue(keepAliveSeconds),
                 };
                 return;
             }

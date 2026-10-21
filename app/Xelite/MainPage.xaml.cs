@@ -756,6 +756,9 @@ namespace Xelite
             BypassLanSwitch.IsOn = s.BypassLan;
             BlockQuicSwitch.IsOn = s.BlockQuic;
             Ipv6Switch.IsOn = s.AllowIpv6;
+            PlatformTransportSwitch.IsOn = s.PlatformTransport;
+            XrayDnsSwitch.IsOn = s.XrayDns;
+            KeepAliveBox.Text = s.KeepAliveSeconds.ToString();
             UpdateOnStartSwitch.IsOn = s.UpdateOnStart;
             MtuBox.Text = s.Mtu.ToString();
             UserAgentBox.Text = s.UserAgent;
@@ -835,6 +838,13 @@ namespace Xelite
             s.BypassLan = BypassLanSwitch.IsOn;
             s.BlockQuic = BlockQuicSwitch.IsOn;
             s.AllowIpv6 = Ipv6Switch.IsOn;
+            s.PlatformTransport = PlatformTransportSwitch.IsOn;
+            s.XrayDns = XrayDnsSwitch.IsOn;
+            int keepAlive;
+            if (int.TryParse(KeepAliveBox.Text, out keepAlive) && keepAlive >= 1 && keepAlive <= 120)
+            {
+                s.KeepAliveSeconds = keepAlive;
+            }
             s.UpdateOnStart = UpdateOnStartSwitch.IsOn;
             s.SendHwid = SendHwidSwitch.IsOn;
             int mtu;
