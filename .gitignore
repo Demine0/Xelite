@@ -10,3 +10,4 @@ BundleArtifacts/
 *.pfx
 project.lock.json
 core/vendor/
+.DS_Store
