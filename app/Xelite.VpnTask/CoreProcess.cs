@@ -125,10 +125,38 @@ namespace Xelite.VpnTask
         /// </summary>
         private static IntPtr BuildEnvironment()
         {
+            // Copy the real block: .NET's Environment API returns too little in the
+            // sandbox, and without SystemRoot Winsock fails (WSAPROVIDERFAILEDINIT).
             var vars = new System.Collections.Generic.SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (System.Collections.DictionaryEntry e in Environment.GetEnvironmentVariables())
+            var raw = NativeMethods.GetEnvironmentStringsW();
+            if (raw != IntPtr.Zero)
             {
-                vars[(string)e.Key] = (string)e.Value;
+                try
+                {
+                    var p = raw;
+                    while (true)
+                    {
+                        var entry = Marshal.PtrToStringUni(p);
+                        if (string.IsNullOrEmpty(entry))
+                        {
+                            break;
+                        }
+                        var eq = entry.IndexOf('=', 1); // entries like "=C:=C:\" start with '='
+                        if (eq > 0)
+                        {
+                            vars[entry.Substring(0, eq)] = entry.Substring(eq + 1);
+                        }
+                        p = IntPtr.Add(p, (entry.Length + 1) * 2);
+                    }
+                }
+                finally
+                {
+                    NativeMethods.FreeEnvironmentStringsW(raw);
+                }
+            }
+            if (!vars.ContainsKey("SystemRoot"))
+            {
+                vars["SystemRoot"] = @"C:\Windows";
             }
             vars["GODEBUG"] = "asyncpreemptoff=1";
             var block = new System.Text.StringBuilder();
