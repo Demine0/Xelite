@@ -73,7 +73,47 @@ namespace Xelite.Core
         public static async Task<VpnManagementConnectionStatus> GetStatusAsync()
         {
             var profile = await FindProfileAsync(log: false);
-            return profile?.ConnectionStatus ?? VpnManagementConnectionStatus.Disconnected;
+            if (profile == null)
+            {
+                return VpnManagementConnectionStatus.Disconnected;
+            }
+            try
+            {
+                return profile.ConnectionStatus;
+            }
+            catch (Exception)
+            {
+                // Throws E_HANDLE on Windows 10 Mobile; use the state the plug-in reports.
+                return StatusFromPlugin();
+            }
+        }
+
+        public static string StatePath => Path.Combine(DataDir, "vpn.state");
+
+        private static string ReadState()
+        {
+            try
+            {
+                return File.Exists(StatePath) ? File.ReadAllText(StatePath).Trim() : "";
+            }
+            catch (Exception)
+            {
+                return "";
+            }
+        }
+
+        private static VpnManagementConnectionStatus StatusFromPlugin()
+        {
+            var state = ReadState();
+            if (state == "connected")
+            {
+                return VpnManagementConnectionStatus.Connected;
+            }
+            if (state == "connecting" && DateTime.Now - File.GetLastWriteTime(StatePath) < TimeSpan.FromSeconds(30))
+            {
+                return VpnManagementConnectionStatus.Connecting;
+            }
+            return VpnManagementConnectionStatus.Disconnected;
         }
 
         /// <summary>Most servers an "auto" entry balances between (each one is probed every minute).</summary>
@@ -143,8 +183,15 @@ namespace Xelite.Core
             var profile = await EnsureProfileAsync();
             var pluginLogSize = FileSize(PluginLogPath);
             AppLog("ConnectProfileAsync(" + profile.ProfileName + ", " + profile.VpnPluginPackageFamilyName + ")");
+            try
+            {
+                File.Delete(StatePath);
+            }
+            catch (Exception)
+            {
+            }
             var status = await Call("connect VPN profile", a => a.ConnectProfileAsync(profile));
-            AppLog("ConnectProfileAsync -> " + status + ", profile status " + profile.ConnectionStatus);
+            AppLog("ConnectProfileAsync -> " + status + ", plug-in state '" + ReadState() + "'");
             if (status != VpnManagementErrorStatus.Ok)
             {
                 var pluginRan = FileSize(PluginLogPath) > pluginLogSize;
@@ -152,6 +199,30 @@ namespace Xelite.Core
                 throw new InvalidOperationException(pluginRan && lastLine.Length > 0
                     ? "Connect failed: " + status + "\n" + lastLine
                     : "Connect failed: " + status + "\nThe VPN plug-in did not start. Try ⋯ → reset VPN profile, then connect again.");
+            }
+
+            // "Ok" only means the request was accepted; wait for the plug-in's own result.
+            for (var i = 0; i < 60; i++)
+            {
+                var state = ReadState();
+                if (state == "connected")
+                {
+                    AppLog("plug-in connected");
+                    return;
+                }
+                if (state.StartsWith("error"))
+                {
+                    AppLog("plug-in " + state);
+                    throw new InvalidOperationException("Connect failed: " + state.Substring(5).TrimStart(':', ' '));
+                }
+                await Task.Delay(250);
+            }
+            var started = FileSize(PluginLogPath) > pluginLogSize;
+            AppLog("no plug-in result after 15 s, plug-in log " + (started ? "written" : "empty"));
+            if (!started)
+            {
+                throw new InvalidOperationException("Windows accepted the connection, but the VPN plug-in did not start. " +
+                                                    "Try connecting from Settings → Network & wireless → VPN → Xelite and tell me the message shown there.");
             }
         }
 

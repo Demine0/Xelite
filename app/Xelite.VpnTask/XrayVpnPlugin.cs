@@ -29,6 +29,7 @@ namespace Xelite.VpnTask
         public void Connect(VpnChannel channel)
         {
             Log(channel, "connect requested");
+            PluginLog.SetState("connecting");
             try
             {
                 var dataDir = ApplicationData.Current.LocalFolder.Path;
@@ -75,18 +76,22 @@ namespace Xelite.VpnTask
                     (uint)mtu + 64,
                     false);
                 Log(channel, "connected");
+                PluginLog.SetState("connected");
             }
             catch (Exception e)
             {
                 var inner = e is AggregateException ? e.InnerException ?? e : e;
                 Log(channel, "connect failed: " + PluginLog.Describe(inner));
                 Cleanup();
+                PluginLog.SetState("error: " + inner.Message);
                 channel.TerminateConnection(inner.Message);
             }
         }
 
         public void Disconnect(VpnChannel channel)
         {
+            Log(channel, "disconnect requested");
+            PluginLog.SetState("disconnected");
             try
             {
                 channel.Stop();

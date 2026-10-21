@@ -38,6 +38,22 @@ namespace Xelite.VpnTask
             }
         }
 
+        /// <summary>
+        /// Writes LocalFolder\vpn.state ("connecting", "connected", "error: ...",
+        /// "disconnected"). The app reads it because VpnPlugInProfile.ConnectionStatus
+        /// throws E_HANDLE on Windows 10 Mobile.
+        /// </summary>
+        public static void SetState(string state)
+        {
+            try
+            {
+                File.WriteAllText(Path.Combine(ApplicationData.Current.LocalFolder.Path, "vpn.state"), state);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         public static string Describe(Exception e)
         {
             var inner = e is AggregateException && e.InnerException != null ? e.InnerException : e;
