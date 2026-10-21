@@ -110,6 +110,61 @@ namespace Xelite.Core
             return result;
         }
 
+        /// <summary>
+        /// After connecting: resolve names and fetch pages the way apps do (Windows DNS
+        /// client and HTTP stack), logging each result to app.log. Tells "DNS broken"
+        /// apart from "HTTPS broken" without the user describing it.
+        /// </summary>
+        public static async Task SelfTestAsync()
+        {
+            await Task.Delay(2000);
+            foreach (var name in new[] { "www.google.com", "instagram.com", "vk.com" })
+            {
+                var sw = Stopwatch.StartNew();
+                try
+                {
+                    var lookup = DatagramSocket.GetEndpointPairsAsync(new HostName(name), "0").AsTask();
+                    if (await Task.WhenAny(lookup, Task.Delay(8000)) != lookup)
+                    {
+                        AppLog("selftest dns " + name + ": timeout after 8 s");
+                        continue;
+                    }
+                    var ips = (await lookup).Select(p => p.RemoteHostName.CanonicalName).Distinct().Take(3);
+                    AppLog("selftest dns " + name + ": " + string.Join(", ", ips) + " (" + sw.ElapsedMilliseconds + " ms)");
+                }
+                catch (Exception e)
+                {
+                    AppLog("selftest dns " + name + ": 0x" + e.HResult.ToString("X8") + " " + e.Message + " (" + sw.ElapsedMilliseconds + " ms)");
+                }
+            }
+            foreach (var url in new[] { "http://www.gstatic.com/generate_204", "https://www.google.com/", "https://1.1.1.1/" })
+            {
+                var sw = Stopwatch.StartNew();
+                try
+                {
+                    var filter = new Windows.Web.Http.Filters.HttpBaseProtocolFilter();
+                    filter.CacheControl.ReadBehavior = Windows.Web.Http.Filters.HttpCacheReadBehavior.MostRecent;
+                    using (var client = new Windows.Web.Http.HttpClient(filter))
+                    {
+                        var get = client.GetAsync(new Uri(url)).AsTask();
+                        if (await Task.WhenAny(get, Task.Delay(10000)) != get)
+                        {
+                            AppLog("selftest http " + url + ": timeout after 10 s");
+                            continue;
+                        }
+                        using (var response = await get)
+                        {
+                            AppLog("selftest http " + url + ": " + (int)response.StatusCode + " (" + sw.ElapsedMilliseconds + " ms)");
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    AppLog("selftest http " + url + ": 0x" + e.HResult.ToString("X8") + " " + e.Message.Trim() + " (" + sw.ElapsedMilliseconds + " ms)");
+                }
+            }
+        }
+
         /// <summary>Public IP and country as seen by a web service, through whatever route Windows picks.</summary>
         public static async Task<string> CheckPublicIpAsync()
         {
@@ -261,6 +316,7 @@ namespace Xelite.Core
                 if (state == "connected")
                 {
                     AppLog("plug-in connected");
+                    var unused = Task.Run(SelfTestAsync);
                     return;
                 }
                 if (state.StartsWith("error"))

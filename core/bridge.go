@@ -316,6 +316,9 @@ func (b *bridge) handleUDP(r *udp.ForwarderRequest) bool {
 					return
 				}
 				idle.Reset(timeout)
+				if id.LocalPort == 53 {
+					b.stats.dnsAnswers.Add(1)
+				}
 				if _, err := local.Write(buf[:n]); err != nil {
 					return
 				}
@@ -328,6 +331,9 @@ func (b *bridge) handleUDP(r *udp.ForwarderRequest) bool {
 				return
 			}
 			idle.Reset(timeout)
+			if id.LocalPort == 53 {
+				b.stats.dnsQueries.Add(1)
+			}
 			if _, err := remote.Write(buf[:n]); err != nil {
 				return
 			}
