@@ -19,13 +19,6 @@ namespace Xelite.VpnTask
             var deferral = taskInstance.GetDeferral();
             try
             {
-                // The app's "test VPN plug-in" starts this task with an ApplicationTrigger
-                // to check that Windows can run it at all.
-                if (taskInstance.TriggerDetails is ApplicationTriggerDetails)
-                {
-                    PluginLog.Write("self-test: background task started OK");
-                    return;
-                }
                 lock (Gate)
                 {
                     if (_plugin == null)

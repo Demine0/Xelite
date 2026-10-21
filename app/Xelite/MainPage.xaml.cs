@@ -300,11 +300,6 @@ namespace Xelite
             }
         }
 
-        private async void TestPlugin_Click(object sender, RoutedEventArgs e)
-        {
-            await RunBusyAsync(async () => await ShowMessageAsync("self-test: " + await VpnService.TestPluginAsync()));
-        }
-
         private async void ResetProfile_Click(object sender, RoutedEventArgs e)
         {
             await RunBusyAsync(async () =>
