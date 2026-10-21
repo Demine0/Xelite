@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Windows.ApplicationModel;
 using Windows.Data.Json;
+using Windows.Foundation;
 using Windows.Networking;
 using Windows.Networking.Sockets;
 using Windows.Networking.Vpn;
@@ -18,7 +19,40 @@ namespace Xelite.Core
     {
         public const string ProfileName = "Xelite";
 
-        private static readonly VpnManagementAgent Agent = new VpnManagementAgent();
+        private const int E_HANDLE = unchecked((int)0x80070006);
+
+        /// <summary>
+        /// Runs one VpnManagementAgent call on a fresh agent. A long-lived agent
+        /// fails with E_HANDLE ("the handle is invalid") once the system VPN
+        /// service restarts, so one retry is made with a new agent. Errors are
+        /// logged and labelled with the step that failed.
+        /// </summary>
+        private static async Task<T> Call<T>(string step, Func<VpnManagementAgent, IAsyncOperation<T>> op, bool log = true)
+        {
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    return await op(new VpnManagementAgent());
+                }
+                catch (Exception e) when (attempt == 0 && e.HResult == E_HANDLE)
+                {
+                    if (log)
+                    {
+                        AppLog(step + ": invalid handle, retrying");
+                    }
+                    await Task.Delay(500);
+                }
+                catch (Exception e)
+                {
+                    if (log)
+                    {
+                        AppLog(step + " failed: 0x" + e.HResult.ToString("X8") + " " + e.Message);
+                    }
+                    throw new InvalidOperationException(step + " failed (0x" + e.HResult.ToString("X8") + "): " + e.Message, e);
+                }
+            }
+        }
 
         public static string DataDir => ApplicationData.Current.LocalFolder.Path;
         public static string XrayLogPath => Path.Combine(DataDir, "xray.log");
@@ -38,7 +72,7 @@ namespace Xelite.Core
 
         public static async Task<VpnManagementConnectionStatus> GetStatusAsync()
         {
-            var profile = await FindProfileAsync();
+            var profile = await FindProfileAsync(log: false);
             return profile?.ConnectionStatus ?? VpnManagementConnectionStatus.Disconnected;
         }
 
@@ -109,7 +143,7 @@ namespace Xelite.Core
             var profile = await EnsureProfileAsync();
             var pluginLogSize = FileSize(PluginLogPath);
             AppLog("ConnectProfileAsync(" + profile.ProfileName + ", " + profile.VpnPluginPackageFamilyName + ")");
-            var status = await Agent.ConnectProfileAsync(profile);
+            var status = await Call("connect VPN profile", a => a.ConnectProfileAsync(profile));
             AppLog("ConnectProfileAsync -> " + status + ", profile status " + profile.ConnectionStatus);
             if (status != VpnManagementErrorStatus.Ok)
             {
@@ -126,7 +160,7 @@ namespace Xelite.Core
             var profile = await FindProfileAsync();
             if (profile != null)
             {
-                await Agent.DisconnectProfileAsync(profile);
+                await Call("disconnect VPN profile", a => a.DisconnectProfileAsync(profile));
             }
         }
 
@@ -184,8 +218,15 @@ namespace Xelite.Core
                 AppLog("reset: no profile");
                 return;
             }
-            await Agent.DisconnectProfileAsync(profile);
-            var status = await Agent.DeleteProfileAsync(profile);
+            try
+            {
+                await Call("disconnect VPN profile", a => a.DisconnectProfileAsync(profile));
+            }
+            catch (InvalidOperationException)
+            {
+                // not connected; delete anyway
+            }
+            var status = await Call("delete VPN profile", a => a.DeleteProfileAsync(profile));
             AppLog("reset: DeleteProfileAsync -> " + status);
             if (status != VpnManagementErrorStatus.Ok)
             {
@@ -212,9 +253,10 @@ namespace Xelite.Core
             return lines.Length > 0 ? lines[lines.Length - 1] : "";
         }
 
-        private static async Task<VpnPlugInProfile> FindProfileAsync()
+        /// <param name="log">False for the once-a-second status poll, to keep app.log readable.</param>
+        private static async Task<VpnPlugInProfile> FindProfileAsync(bool log = true)
         {
-            var profiles = await Agent.GetProfilesAsync();
+            var profiles = await Call("list VPN profiles", a => a.GetProfilesAsync(), log);
             return profiles.OfType<VpnPlugInProfile>().FirstOrDefault(p => p.ProfileName == ProfileName);
         }
 
@@ -234,7 +276,7 @@ namespace Xelite.Core
                 RequireVpnClientAppUI = false,
             };
             profile.ServerUris.Add(new Uri("https://127.0.0.1"));
-            var status = await Agent.AddProfileFromObjectAsync(profile);
+            var status = await Call("create VPN profile", a => a.AddProfileFromObjectAsync(profile));
             AppLog("AddProfileFromObjectAsync(" + profile.VpnPluginPackageFamilyName + ") -> " + status);
             if (status != VpnManagementErrorStatus.Ok)
             {
