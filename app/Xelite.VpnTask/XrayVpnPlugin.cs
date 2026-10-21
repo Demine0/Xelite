@@ -173,12 +173,17 @@ namespace Xelite.VpnTask
             var queue = _sendQueue;
             while (packets.Size > 0)
             {
-                // Copy the packet and send it to xelite-core ourselves (see _side);
-                // nothing goes out through the transport.
-                var src = packets.RemoveAtBegin().Buffer;
+                // Copy the packet and send it to xelite-core ourselves (see _side).
+                var packet = packets.RemoveAtBegin();
+                var src = packet.Buffer;
                 var copy = new Windows.Storage.Streams.Buffer(src.Length);
                 src.CopyTo(0, copy, 0, src.Length);
                 copy.Length = src.Length;
+                // The buffer belongs to the platform's pool (about 50 of them); it only
+                // comes back through encapulatedPackets. Dropping it starved the pool and
+                // Windows stopped delivering packets after 50. Return it emptied.
+                src.Length = 0;
+                encapulatedPackets.Append(packet);
                 if (queue == null || !queue.TryAdd(copy))
                 {
                     continue; // queue full or closing: drop, TCP retransmits
