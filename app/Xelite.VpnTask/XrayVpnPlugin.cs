@@ -40,6 +40,10 @@ namespace Xelite.VpnTask
         // Windows binds the transport to the physical interface, where datagrams
         // to 127.0.0.1 never arrive. Replies come back on the transport.
         private DatagramSocket _side;
+        private ServerTunnel _tunnel;
+        private DatagramSocket _doorbell;
+        private IOutputStream _doorbellOut;
+        private VpnChannel _channel;
         private BlockingCollection<IBuffer> _sendQueue;
         private readonly AutoResetEvent _controlReply = new AutoResetEvent(false);
         private string _controlExpected;
@@ -90,10 +94,36 @@ namespace Xelite.VpnTask
                 }
                 Log(channel, "loopback test: OK");
 
+                // Main transport: the server connection, owned by the platform so that its
+                // replies wake the plug-in (see ServerTunnel). Optional transport: loopback
+                // datagrams from xelite-core (tagged IP packets and doorbells).
+                _channel = channel;
+                var server = settings.GetNamedString("server", "");
+                var serverPort = (int)settings.GetNamedNumber("serverPort", 0);
                 _socket = new DatagramSocket();
-                channel.AssociateTransport(_socket, null);
+                if (server.Length > 0 && serverPort > 0)
+                {
+                    _tunnel = new ServerTunnel(server, serverPort);
+                    channel.AssociateTransport(_tunnel.Socket, _socket);
+                }
+                else
+                {
+                    channel.AssociateTransport(_socket, null);
+                }
+                _socket.BindEndpointAsync(new HostName("127.0.0.1"), "").AsTask().Wait();
                 _socket.ConnectAsync(new HostName("127.0.0.1"), port.ToString()).AsTask().Wait();
                 var transportPort = _socket.Information.LocalPort;
+                if (_tunnel != null)
+                {
+                    _tunnel.ConnectAsync().Wait();
+                    _doorbell = new DatagramSocket();
+                    _doorbell.ConnectAsync(new HostName("127.0.0.1"), transportPort).AsTask().Wait();
+                    _doorbellOut = _doorbell.OutputStream;
+                    _relay.Tunnel = _tunnel;
+                    _relay.RingDoorbell = RingDoorbell;
+                    _relay.TunnelClosed = reason => TunnelClosed(reason);
+                    Log(channel, "server transport connected to " + _tunnel.Target);
+                }
                 var ack = Control("XELITE-RT" + transportPort, "XELITE-RT" + transportPort);
                 Log(channel, "transport associated (local port " + transportPort + ", reply-to " +
                              (ack ? "acknowledged" : "NOT acknowledged") + "), starting tunnel");
@@ -197,27 +227,91 @@ namespace Xelite.VpnTask
                     Log(channel, "to xelite-core: " + n + " packets");
                 }
             }
+            // Queued upload for the server goes out on the main transport (affinity 0).
+            _tunnel?.Drain(channel, encapulatedPackets);
         }
 
         public void Decapsulate(VpnChannel channel, VpnPacketBuffer encapBuffer, VpnPacketBufferList decapsulatedPackets, VpnPacketBufferList controlPacketsToSend)
         {
             var src = encapBuffer.Buffer;
-            if (src.Length < 20)
+            var tag = TagOf(src);
+            if (_tunnel != null && tag == 0)
+            {
+                // Bytes of the server's TCP stream (main transport), for Xray.
+                _tunnel.Deliver(src);
+                _tunnel.Drain(channel, controlPacketsToSend);
+                return;
+            }
+            if (tag == 2 || (_tunnel == null && src.Length < 20))
+            {
+                // Doorbell: only here to give queued upload a chance to go out.
+                _tunnel?.Drain(channel, controlPacketsToSend);
+                return;
+            }
+            var offset = tag == 1 ? 4u : 0u;
+            var length = src.Length - offset;
+            _tunnel?.Drain(channel, controlPacketsToSend);
+            if (length < 20)
             {
                 return;
             }
             var packet = channel.GetVpnReceivePacketBuffer();
-            if (packet.Buffer.Capacity < src.Length)
+            if (packet.Buffer.Capacity < length)
             {
                 return;
             }
-            src.CopyTo(0, packet.Buffer, 0, src.Length);
-            packet.Buffer.Length = src.Length;
+            src.CopyTo(offset, packet.Buffer, 0, length);
+            packet.Buffer.Length = length;
             decapsulatedPackets.Append(packet);
             var n = ++_received;
             if (ShouldLog(n))
             {
                 Log(channel, "from xelite-core: " + n + " packets");
+            }
+        }
+
+        /// <summary>1: "XLT1" + IP packet from xelite-core, 2: "XLT0" doorbell, 0: anything else (server stream bytes).</summary>
+        private static int TagOf(IBuffer buffer)
+        {
+            if (buffer.Length < 4)
+            {
+                return 0;
+            }
+            var head = new byte[4];
+            buffer.CopyTo(0, head, 0, 4);
+            if (head[0] != (byte)'X' || head[1] != (byte)'L' || head[2] != (byte)'T')
+            {
+                return 0;
+            }
+            return head[3] == (byte)'1' ? 1 : head[3] == (byte)'0' && buffer.Length == 4 ? 2 : 0;
+        }
+
+        private static readonly IBuffer DoorbellPayload = System.Text.Encoding.ASCII.GetBytes("XLT0").AsBuffer();
+
+        /// <summary>Sends a datagram to our optional transport, so the platform calls Decapsulate soon.</summary>
+        private void RingDoorbell()
+        {
+            try
+            {
+                var unused = _doorbellOut?.WriteAsync(DoorbellPayload);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private void TunnelClosed(string reason)
+        {
+            PluginLog.Write("server connection ended: " + reason + " (down " + _tunnel?.BytesDown + " B, up " + _tunnel?.BytesUp + " B)");
+            // The stream (and TLS session in it) can't be resumed on the platform's
+            // transport; end the connection and let the app reconnect.
+            PluginLog.SetState("reconnect");
+            try
+            {
+                _channel?.TerminateConnection("Xelite: server connection ended, reconnecting");
+            }
+            catch (Exception)
+            {
             }
         }
 
@@ -313,7 +407,8 @@ namespace Xelite.VpnTask
                     {
                         await Task.Delay(5000, cts.Token);
                         var cpu = _core?.CpuMilliseconds() ?? -1;
-                        PluginLog.Write("alive: to core " + _sent + ", from core " + _received +
+                        PluginLog.Write("alive: server down " + (_tunnel?.BytesDown ?? 0) + " B up " + (_tunnel?.BytesUp ?? 0) +
+                                        " B (attached " + (_tunnel?.IsAttached ?? false) + "), to core " + _sent + ", from core " + _received +
                                         ", send queue " + (_sendQueue?.Count ?? -1) +
                                         ", xelite-core cpu " + (cpu == -1 ? "EXITED" : cpu + " ms") +
                                         ", core heartbeat " + (_lastHeartbeatAt == DateTime.MinValue
@@ -329,6 +424,11 @@ namespace Xelite.VpnTask
 
         private void Cleanup()
         {
+            _doorbell?.Dispose();
+            _doorbell = null;
+            _doorbellOut = null;
+            _tunnel?.Dispose();
+            _tunnel = null;
             IsConnected = false;
             _heartbeat?.Cancel();
             _heartbeat = null;

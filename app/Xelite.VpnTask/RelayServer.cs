@@ -31,6 +31,11 @@ namespace Xelite.VpnTask
 
         public int Port { get; private set; }
 
+        /// <summary>The platform-owned server connection; the relay request for its address is attached to it.</summary>
+        public ServerTunnel Tunnel { get; set; }
+        public Action RingDoorbell { get; set; }
+        public Action<string> TunnelClosed { get; set; }
+
         public async Task StartAsync()
         {
             _listener = new StreamSocketListener();
@@ -49,6 +54,7 @@ namespace Xelite.VpnTask
         private async Task HandleAsync(StreamSocket local)
         {
             string request = null;
+            var keepLocal = false;
             var fromCore = local.InputStream.AsStreamForRead(0);
             var toCore = local.OutputStream.AsStreamForWrite(0);
             try
@@ -64,7 +70,16 @@ namespace Xelite.VpnTask
                 var host = request.Substring(space + 1, colon - space - 1).Trim('[', ']');
                 var port = request.Substring(colon + 1);
 
-                if (network == "TCP")
+                var tunnel = Tunnel;
+                if (network == "TCP" && tunnel != null && host + ":" + port == tunnel.Target &&
+                    tunnel.TryAttach(local, RingDoorbell, TunnelClosed))
+                {
+                    // Bridged onto the platform's main transport (see ServerTunnel).
+                    keepLocal = true;
+                    await WriteLineAsync(toCore, "OK");
+                    PluginLog.Write("relay: " + request + " attached to the VPN's server transport");
+                }
+                else if (network == "TCP")
                 {
                     await RelayTcpAsync(local, fromCore, toCore, host, port);
                 }
@@ -94,7 +109,10 @@ namespace Xelite.VpnTask
             }
             finally
             {
-                local.Dispose();
+                if (!keepLocal)
+                {
+                    local.Dispose();
+                }
             }
         }
 

@@ -39,6 +39,7 @@ namespace Xelite.Core
             for (var i = 0; i < links.Count; i++)
             {
                 var outbound = BuildOutbound(links[i], dialAddresses[i]);
+                SingleConnection(outbound);
                 outbound["tag"] = Str(balanced ? "proxy-" + i : "proxy");
                 outbounds.Add(outbound);
             }
@@ -544,6 +545,68 @@ namespace Xelite.Core
                 return false;
             }
             return h.Type == Windows.Networking.HostNameType.Ipv4 || h.Type == Windows.Networking.HostNameType.Ipv6;
+        }
+
+        /// <summary>
+        /// Makes Xray carry everything over one TCP connection to the server: the VPN
+        /// plug-in bridges exactly one connection onto the platform's main transport,
+        /// which is what keeps the tunnel awake (see ServerTunnel in the plug-in).
+        /// XHTTP: one HTTP/2 connection that is never rotated. Others: Xray mux
+        /// (not with XTLS Vision, which does not support it).
+        /// </summary>
+        private static void SingleConnection(JsonObject outbound)
+        {
+            var stream = outbound.GetNamedObject("streamSettings", null);
+            var network = stream?.GetNamedString("network", "tcp") ?? "tcp";
+            if (network == "xhttp" || network == "splithttp")
+            {
+                var xhttp = stream.GetNamedObject("xhttpSettings", null) ?? stream.GetNamedObject("splithttpSettings", null);
+                if (xhttp == null)
+                {
+                    xhttp = new JsonObject();
+                    stream["xhttpSettings"] = xhttp;
+                }
+                var extra = xhttp.GetNamedObject("extra", null);
+                if (extra == null)
+                {
+                    extra = new JsonObject();
+                    xhttp["extra"] = extra;
+                }
+                extra["xmux"] = new JsonObject
+                {
+                    ["maxConnections"] = JsonValue.CreateNumberValue(1),
+                    ["maxConcurrency"] = JsonValue.CreateNumberValue(0),
+                    ["cMaxReuseTimes"] = JsonValue.CreateNumberValue(0),
+                    ["hMaxRequestTimes"] = Str("1000000"),
+                    ["hMaxReusableSecs"] = Str("86400"),
+                };
+                return;
+            }
+            if (network == "hysteria" || outbound.ContainsKey("mux"))
+            {
+                return;
+            }
+            var settings = outbound.GetNamedObject("settings", null);
+            var flow = "";
+            var vnext = settings?.GetNamedArray("vnext", null);
+            if (vnext != null && vnext.Count > 0)
+            {
+                var users = vnext.GetObjectAt(0).GetNamedArray("users", null);
+                if (users != null && users.Count > 0)
+                {
+                    flow = users.GetObjectAt(0).GetNamedString("flow", "");
+                }
+            }
+            if (flow.Length == 0)
+            {
+                outbound["mux"] = new JsonObject
+                {
+                    ["enabled"] = JsonValue.CreateBooleanValue(true),
+                    ["concurrency"] = JsonValue.CreateNumberValue(8),
+                    ["xudpConcurrency"] = JsonValue.CreateNumberValue(16),
+                    ["xudpProxyUDP443"] = Str("reject"),
+                };
+            }
         }
 
         /// <summary>Indented JSON, for the config editor.</summary>

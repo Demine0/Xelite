@@ -44,6 +44,9 @@ var (
 	pingMagic    = []byte("XELITE-PING")
 	pongMagic    = []byte("XELITE-PONG")
 	replyToMagic = []byte("XELITE-RT") // followed by the port to send replies to
+
+	// packetTag prefixes every IP packet sent to the reply-to transport.
+	packetTag = []byte("XLT1")
 )
 
 // control handles the plug-in's short control datagrams.
@@ -204,6 +207,12 @@ func (b *bridge) writeLoop() {
 		data := v.Flatten()
 		v.Release()
 		pkt.DecRef()
+		if b.fixedPeer.Load() {
+			// The reply-to socket is the VPN's optional transport, which also carries the
+			// server's TCP stream on the main one: tag IP packets so the plug-in can tell
+			// them from stream bytes in Decapsulate.
+			data = append(append(make([]byte, 0, len(packetTag)+len(data)), packetTag...), data...)
+		}
 		if peer := b.peer.Load(); peer != nil {
 			if _, err := b.conn.WriteToUDP(data, peer); err == nil {
 				b.stats.pktOut.Add(1)

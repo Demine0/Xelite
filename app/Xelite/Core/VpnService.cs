@@ -90,6 +90,9 @@ namespace Xelite.Core
         }
 
         public static string StatePath => Path.Combine(DataDir, "vpn.state");
+
+        /// <summary>True when the plug-in ended the connection because the server connection closed.</summary>
+        public static bool WantsReconnect => ReadState() == "reconnect";
         public static string StatsPath => Path.Combine(DataDir, "core.stats");
 
         /// <summary>Counters written by xelite-core every second ("key=value ..."), empty if none.</summary>
@@ -235,6 +238,19 @@ namespace Xelite.Core
                 throw new InvalidOperationException("Cannot resolve " + candidates.First().Address);
             }
             AppLog("connect: " + links.Count + " server(s), first " + links[0].Name + " (" + ips[0] + ")");
+            if (links.Count > 1)
+            {
+                // The tunnel carries one server connection (the VPN's main transport), so the
+                // auto entry picks the fastest server here instead of Xray's balancer.
+                var pings = await Task.WhenAll(links.Select((l, i) => l.Protocol == "hysteria2"
+                    ? Task.FromResult(int.MaxValue)
+                    : PingAsync(ips[i], l.Port).ContinueWith(t => t.Result < 0 ? int.MaxValue : t.Result)));
+                var best = Enumerable.Range(0, links.Count).OrderBy(i => pings[i]).First();
+                AppLog("auto: picked " + links[best].Name + " (" + (pings[best] == int.MaxValue ? "no answer" : pings[best] + " ms") +
+                       ") out of " + links.Count);
+                links = new List<ProxyLink> { links[best] };
+                ips = new List<string> { ips[best] };
+            }
             LastServers = links.Select((l, i) => new KeyValuePair<ProxyLink, string>(l, ips[i])).ToList();
 
             File.WriteAllText(Path.Combine(DataDir, "config.json"),
@@ -269,6 +285,9 @@ namespace Xelite.Core
                 ["ipv6"] = JsonValue.CreateBooleanValue(settings.AllowIpv6),
                 ["dns"] = dns,
                 ["exclude"] = exclude,
+                // The plug-in opens this connection itself as the VPN's main transport (TCP only).
+                ["server"] = JsonValue.CreateStringValue(links[0].Protocol == "hysteria2" ? "" : ips[0]),
+                ["serverPort"] = JsonValue.CreateNumberValue(links[0].Port),
             };
             File.WriteAllText(Path.Combine(DataDir, "vpn.json"), vpn.Stringify());
             TrimLog(XrayLogPath);

@@ -25,6 +25,7 @@ namespace Xelite
         private readonly DispatcherTimer _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         private readonly DispatcherTimer _pingTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
         private bool _pinging;
+        private bool _reconnecting;
         private List<Subscription> _model = new List<Subscription>();
         private VpnManagementConnectionStatus _status = VpnManagementConnectionStatus.Disconnected;
         private Brush _accentBrush;
@@ -454,6 +455,16 @@ namespace Xelite
                     break;
             }
             ConnectLabel.Text = connected || _status == VpnManagementConnectionStatus.Connecting ? "disconnect" : "connect";
+            // The plug-in ends the connection when the server connection closes (it can't be
+            // resumed on the VPN's transport); reconnect with the same server.
+            if (!connected && !_reconnecting && VpnService.WantsReconnect && Selected != null && ConnectButton.IsEnabled)
+            {
+                _reconnecting = true;
+                VpnService.AppLog("reconnecting after the server connection ended");
+                var server = Selected;
+                await RunBusyAsync(() => VpnService.ConnectAsync(server.Links));
+                _reconnecting = false;
+            }
             UpdateTraffic(connected);
             ConnectButton.Background = connected ? ConnectedBrush : _accentBrush;
         }
