@@ -71,6 +71,61 @@ namespace Xelite
             {
                 await UpdateSubscriptionsAsync(_model.Where(s => !s.IsManual).ToList(), quiet: true);
             }
+            await AutoConnectAsync();
+        }
+
+        /// <summary>
+        /// Remote testing hook: if LocalState\autoconnect.txt exists (uploaded through
+        /// Device Portal), connect to the server whose name contains its text (or the
+        /// selected one if empty), then check the public IP. The file is deleted first
+        /// so it runs once; the result goes to app.log.
+        /// </summary>
+        private async Task AutoConnectAsync()
+        {
+            var path = System.IO.Path.Combine(VpnService.DataDir, "autoconnect.txt");
+            string wanted;
+            try
+            {
+                if (!System.IO.File.Exists(path))
+                {
+                    return;
+                }
+                wanted = System.IO.File.ReadAllText(path).Trim();
+                System.IO.File.Delete(path);
+            }
+            catch (Exception)
+            {
+                return;
+            }
+            var target = wanted.Length == 0 ? Selected : _servers.FirstOrDefault(s => s.Name.Contains(wanted));
+            VpnService.AppLog("autoconnect '" + wanted + "' -> " + (target?.Name ?? "no matching server"));
+            if (target == null)
+            {
+                return;
+            }
+            foreach (var s in _servers)
+            {
+                s.IsSelected = s == target;
+            }
+            AppSettings.Current.SelectedLink = target.Key;
+            UpdateHome();
+            if (_status != VpnManagementConnectionStatus.Disconnected)
+            {
+                await VpnService.DisconnectAsync();
+                await WaitForStatusAsync(VpnManagementConnectionStatus.Disconnected, 5);
+            }
+            try
+            {
+                await VpnService.ConnectAsync(target.Links);
+                await RefreshStatusAsync();
+                await Task.Delay(3000);
+                await CheckIpAsync();
+                VpnService.AppLog("autoconnect public IP: " + IpText.Text);
+            }
+            catch (Exception ex)
+            {
+                VpnService.AppLog("autoconnect failed: " + ex.Message);
+            }
         }
 
         // ---------- servers ----------
