@@ -9,6 +9,7 @@ using Windows.Networking;
 using Windows.Networking.Sockets;
 using Windows.Networking.Vpn;
 using System.Threading;
+using System.Threading.Tasks;
 using Windows.Storage;
 using Windows.Storage.Streams;
 
@@ -35,7 +36,6 @@ namespace Xelite.VpnTask
         // to 127.0.0.1 never arrive. Replies come back on the transport.
         private DatagramSocket _side;
         private BlockingCollection<IBuffer> _sendQueue;
-        private Thread _sender;
         private readonly AutoResetEvent _controlReply = new AutoResetEvent(false);
         private string _controlExpected;
 
@@ -222,7 +222,8 @@ namespace Xelite.VpnTask
             _sendQueue = new BlockingCollection<IBuffer>(4096);
             var queue = _sendQueue;
             var output = _side.OutputStream;
-            _sender = new Thread(() =>
+            // Long-running task (UWP has no System.Threading.Thread) sending packets one by one.
+            Task.Factory.StartNew(() =>
             {
                 try
                 {
@@ -235,8 +236,7 @@ namespace Xelite.VpnTask
                 {
                     PluginLog.Write("sender stopped: " + PluginLog.Describe(e));
                 }
-            }) { IsBackground = true };
-            _sender.Start();
+            }, TaskCreationOptions.LongRunning);
         }
 
         /// <summary>
