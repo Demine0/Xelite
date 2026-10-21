@@ -13,23 +13,19 @@
 #include <winrt/Windows.ApplicationModel.Core.h>
 #include <winrt/Windows.Foundation.h>
 
-using namespace winrt;
-using namespace Windows::ApplicationModel::Core;
-using namespace Windows::Foundation;
-
 using DllGetActivationFactoryFn = HRESULT(WINAPI*)(HSTRING, ::IActivationFactory**);
 
 namespace
 {
-    struct Factories : implements<Factories, IGetActivationFactory>
+    struct Factories : winrt::implements<Factories, winrt::Windows::Foundation::IGetActivationFactory>
     {
         explicit Factories(DllGetActivationFactoryFn getFactory) : m_getFactory(getFactory) {}
 
-        IInspectable GetActivationFactory(hstring const& activatableClassId)
+        winrt::Windows::Foundation::IInspectable GetActivationFactory(winrt::hstring const& activatableClassId)
         {
-            com_ptr<::IActivationFactory> factory;
-            check_hresult(m_getFactory(static_cast<HSTRING>(get_abi(activatableClassId)), factory.put()));
-            return factory.as<IInspectable>();
+            winrt::com_ptr<::IActivationFactory> factory;
+            winrt::check_hresult(m_getFactory(static_cast<HSTRING>(winrt::get_abi(activatableClassId)), factory.put()));
+            return factory.as<winrt::Windows::Foundation::IInspectable>();
         }
 
     private:
@@ -39,7 +35,7 @@ namespace
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 {
-    init_apartment();
+    winrt::init_apartment();
     HMODULE plugin = LoadPackagedLibrary(L"Xelite.dll", 0);
     if (!plugin)
     {
@@ -50,6 +46,6 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     {
         return static_cast<int>(GetLastError());
     }
-    CoreApplication::RunWithActivationFactories(make<Factories>(getFactory));
+    winrt::Windows::ApplicationModel::Core::CoreApplication::RunWithActivationFactories(winrt::make<Factories>(getFactory));
     return 0;
 }
