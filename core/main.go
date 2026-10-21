@@ -65,6 +65,7 @@ func main() {
 	if *statsPath != "" {
 		go b.stats.writeLoop(*statsPath, b.ctx.Done())
 	}
+	go b.heartbeatLoop(b.stats.fileError)
 
 	if *ppid != 0 {
 		go func() {

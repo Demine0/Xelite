@@ -43,6 +43,8 @@ namespace Xelite.VpnTask
         private BlockingCollection<IBuffer> _sendQueue;
         private readonly AutoResetEvent _controlReply = new AutoResetEvent(false);
         private string _controlExpected;
+        private string _lastHeartbeat = "none yet";
+        private DateTime _lastHeartbeatAt = DateTime.MinValue;
 
         // Traffic counters, logged at 1, 10, 100 and then every 1000 packets each way.
         private static bool ShouldLog(long n)
@@ -219,9 +221,15 @@ namespace Xelite.VpnTask
                 try
                 {
                     var reader = e.GetDataReader();
+                    var text = reader.ReadString(reader.UnconsumedBufferLength);
+                    if (text.StartsWith("XELITE-HB "))
+                    {
+                        _lastHeartbeat = text.Substring(10);
+                        _lastHeartbeatAt = DateTime.UtcNow;
+                        return;
+                    }
                     var expected = _controlExpected;
-                    if (expected != null && reader.UnconsumedBufferLength == expected.Length &&
-                        reader.ReadString(reader.UnconsumedBufferLength) == expected)
+                    if (expected != null && text == expected)
                     {
                         _controlReply.Set();
                     }
@@ -299,7 +307,10 @@ namespace Xelite.VpnTask
                         var cpu = _core?.CpuMilliseconds() ?? -1;
                         PluginLog.Write("alive: to core " + _sent + ", from core " + _received +
                                         ", send queue " + (_sendQueue?.Count ?? -1) +
-                                        ", xelite-core cpu " + (cpu == -1 ? "EXITED" : cpu + " ms"));
+                                        ", xelite-core cpu " + (cpu == -1 ? "EXITED" : cpu + " ms") +
+                                        ", core heartbeat " + (_lastHeartbeatAt == DateTime.MinValue
+                                            ? "never"
+                                            : (int)(DateTime.UtcNow - _lastHeartbeatAt).TotalSeconds + " s ago: " + _lastHeartbeat));
                     }
                 }
                 catch (OperationCanceledException)

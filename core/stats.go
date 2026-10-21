@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -21,6 +22,7 @@ type stats struct {
 	ipv6Rejected      atomic.Uint64
 
 	writeErrors atomic.Uint64
+	fileErr     atomic.Pointer[string]
 	relayed     atomic.Uint64 // outbound connections opened through the plug-in relay
 
 	mu        sync.Mutex
@@ -83,7 +85,11 @@ func (s *stats) writeLoop(path string, done <-chan struct{}) {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
 	for {
-		_ = os.WriteFile(path, []byte(s.String()), 0o644)
+		if err := os.WriteFile(path, []byte(s.String()), 0o644); err != nil {
+			s.setFileError(err.Error())
+		} else {
+			s.setFileError("none")
+		}
 		select {
 		case <-t.C:
 		case <-done:
@@ -140,4 +146,37 @@ func okText(ok bool) string {
 		return "valid"
 	}
 	return "INVALID (offloaded)"
+}
+
+// heartbeatLoop sends "XELITE-HB <n> <stats>" to the plug-in's side socket
+// every second. It proves from the outside that Go timers and the scheduler
+// keep running, and carries the last stats-file error, without relying on
+// file writes.
+func (b *bridge) heartbeatLoop(statsErr func() string) {
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+	for n := 1; ; n++ {
+		select {
+		case <-t.C:
+		case <-b.ctx.Done():
+			return
+		}
+		to := b.control.Load()
+		if to == nil {
+			continue
+		}
+		msg := fmt.Sprintf("XELITE-HB %d pktIn=%d pktOut=%d tcp=%d udp=%d relayed=%d statsErr=%s",
+			n, b.stats.pktIn.Load(), b.stats.pktOut.Load(), b.stats.tcp.Load(), b.stats.udp.Load(),
+			b.stats.relayed.Load(), statsErr())
+		_, _ = b.conn.WriteToUDP([]byte(msg), to)
+	}
+}
+
+func (s *stats) setFileError(e string) { s.fileErr.Store(&e) }
+
+func (s *stats) fileError() string {
+	if e := s.fileErr.Load(); e != nil {
+		return strings.ReplaceAll(*e, " ", "_")
+	}
+	return "not-yet"
 }

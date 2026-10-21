@@ -44,11 +44,12 @@ var (
 )
 
 // control handles the plug-in's short control datagrams.
-func (b *bridge) control(msg []byte, from *stdnet.UDPAddr) {
+func (b *bridge) handleControl(msg []byte, from *stdnet.UDPAddr) {
 	switch {
 	case bytes.HasPrefix(msg, pingMagic):
 		// Loopback test: echo so the plug-in knows datagrams pass both ways.
 		_, _ = b.conn.WriteToUDP(pongMagic, from)
+		b.control.Store(from)
 	case bytes.HasPrefix(msg, replyToMagic):
 		// The plug-in sends packets from its own socket, because Windows binds
 		// the VPN transport socket to the physical interface, where loopback
@@ -83,6 +84,9 @@ type bridge struct {
 	// fixedPeer is set once the plug-in names its VPN transport socket as the
 	// reply address (XELITE-RT); packets then arrive from a different socket.
 	fixedPeer atomic.Bool
+
+	// control is the plug-in's side socket, where heartbeats go.
+	control atomic.Pointer[stdnet.UDPAddr]
 }
 
 func newBridge(inst *core.Instance, port int, mtu uint32, rejectIPv6 bool, st *stats) (*bridge, error) {
@@ -160,7 +164,7 @@ func (b *bridge) readLoop() {
 			continue
 		}
 		if n < header.IPv4MinimumSize {
-			b.control(buf[:n], addr)
+			b.handleControl(buf[:n], addr)
 			continue
 		}
 		if !b.fixedPeer.Load() {
