@@ -295,6 +295,15 @@ namespace Xelite.Core
 
         private static void NormalizeXhttp(JsonObject x)
         {
+            // v26.3+ renamed session* to sessionID*. v26.2.6 silently ignores the new names
+            // and puts the session ID in the path, which such servers reject with 400.
+            RenameKey(x, "sessionIDPlacement", "sessionPlacement");
+            RenameKey(x, "sessionIDKey", "sessionKey");
+            // New ID formats (v26.3+); the server does not check the format, the default UUID works.
+            x.Remove("sessionIDTable");
+            x.Remove("sessionIDLength");
+            x.Remove("serverMaxHeaderBytes");
+
             // "auto" (v26.3+) accepts any placement on the server; "body" is the old default.
             if (x.GetNamedString("uplinkDataPlacement", "") == "auto")
             {
@@ -324,6 +333,19 @@ namespace Xelite.Core
                 else
                 {
                     x.Remove("uplinkChunkSize");
+                }
+            }
+        }
+
+        private static void RenameKey(JsonObject o, string from, string to)
+        {
+            IJsonValue v;
+            if (o.TryGetValue(from, out v))
+            {
+                o.Remove(from);
+                if (!o.ContainsKey(to))
+                {
+                    o[to] = v;
                 }
             }
         }
