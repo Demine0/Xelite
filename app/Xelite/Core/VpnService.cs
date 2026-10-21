@@ -180,6 +180,7 @@ namespace Xelite.Core
                 throw new InvalidOperationException("Cannot resolve " + candidates.First().Address);
             }
             AppLog("connect: " + links.Count + " server(s), first " + links[0].Name + " (" + ips[0] + ")");
+            LastServers = links.Select((l, i) => new KeyValuePair<ProxyLink, string>(l, ips[i])).ToList();
 
             File.WriteAllText(Path.Combine(DataDir, "config.json"),
                 ConfigBuilder.Build(links, ips, settings, XrayLogPath));
@@ -287,13 +288,26 @@ namespace Xelite.Core
             }
         }
 
+        /// <summary>Servers of the current/last connection with their resolved IPs.</summary>
+        public static IReadOnlyList<KeyValuePair<ProxyLink, string>> LastServers { get; private set; } =
+            new List<KeyValuePair<ProxyLink, string>>();
+
         /// <summary>TCP connect latency in ms, or -1 on failure.</summary>
-        public static async Task<int> PingAsync(ProxyLink link, int timeoutMs = 3000)
+        public static Task<int> PingAsync(ProxyLink link, int timeoutMs = 3000)
+        {
+            return PingAsync(link.Address, link.Port, timeoutMs);
+        }
+
+        /// <summary>
+        /// TCP connect latency to host:port in ms, or -1. Use the resolved IP while
+        /// connected: server IPs bypass the tunnel, DNS names would not.
+        /// </summary>
+        public static async Task<int> PingAsync(string host, int port, int timeoutMs = 3000)
         {
             using (var socket = new StreamSocket())
             {
                 var sw = Stopwatch.StartNew();
-                var connect = socket.ConnectAsync(new HostName(link.Address), link.Port.ToString()).AsTask();
+                var connect = socket.ConnectAsync(new HostName(host), port.ToString()).AsTask();
                 var done = await Task.WhenAny(connect, Task.Delay(timeoutMs));
                 if (done != connect || connect.IsFaulted)
                 {

@@ -54,6 +54,13 @@ namespace Xelite.VpnTask
                 var allowIpv6 = settings.GetNamedBoolean("ipv6", false);
                 _core.StartAsync(Path.Combine(dataDir, "config.json"), port, mtu, allowIpv6).Wait();
                 Log(channel, "xelite-core ready");
+                if (!LoopbackTest(port))
+                {
+                    throw new InvalidOperationException(
+                        "Windows blocks loopback traffic between Xelite's VPN plug-in and its engine (127.0.0.1:" + port +
+                        "), so no traffic can pass. This is the UWP network isolation sandbox.");
+                }
+                Log(channel, "loopback test: OK");
 
                 _socket = new DatagramSocket();
                 channel.AssociateTransport(_socket, null);
@@ -159,6 +166,50 @@ namespace Xelite.VpnTask
             if (n == 1 || n % LogEvery == 0)
             {
                 Log(channel, "from xelite-core: " + n + " packets");
+            }
+        }
+
+        /// <summary>
+        /// Sends XELITE-PING to xelite-core and waits for XELITE-PONG: the tunnel
+        /// only works if loopback datagrams get through in both directions.
+        /// </summary>
+        private static bool LoopbackTest(int port)
+        {
+            using (var socket = new DatagramSocket())
+            {
+                var pong = new System.Threading.ManualResetEventSlim(false);
+                socket.MessageReceived += (s, e) =>
+                {
+                    try
+                    {
+                        var reader = e.GetDataReader();
+                        if (reader.UnconsumedBufferLength >= 11 && reader.ReadString(11) == "XELITE-PONG")
+                        {
+                            pong.Set();
+                        }
+                    }
+                    catch (Exception)
+                    {
+                    }
+                };
+                try
+                {
+                    socket.ConnectAsync(new HostName("127.0.0.1"), port.ToString()).AsTask().Wait();
+                    var writer = new Windows.Storage.Streams.DataWriter(socket.OutputStream);
+                    for (var i = 0; i < 3 && !pong.IsSet; i++)
+                    {
+                        writer.WriteString("XELITE-PING");
+                        writer.StoreAsync().AsTask().Wait();
+                        pong.Wait(700);
+                    }
+                    writer.DetachStream();
+                }
+                catch (Exception e)
+                {
+                    PluginLog.Write("loopback test error: " + PluginLog.Describe(e));
+                }
+                PluginLog.Write("loopback test: " + (pong.IsSet ? "echo received" : "no echo"));
+                return pong.IsSet;
             }
         }
 

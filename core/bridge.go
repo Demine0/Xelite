@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"io"
 	stdnet "net"
@@ -33,6 +34,11 @@ const (
 
 	udpIdleTimeout = 60 * time.Second
 	dnsIdleTimeout = 15 * time.Second
+)
+
+var (
+	pingMagic = []byte("XELITE-PING")
+	pongMagic = []byte("XELITE-PONG")
 )
 
 // bridge moves raw IP packets between the VPN plug-in (over loopback UDP)
@@ -123,10 +129,15 @@ func (b *bridge) readLoop() {
 			}
 			continue
 		}
-		b.peer.Store(addr)
 		if n < header.IPv4MinimumSize {
-			continue // keep-alive / hello datagram
+			// The plug-in's loopback test: echo it so the plug-in knows datagrams
+			// get through in both directions.
+			if bytes.HasPrefix(buf[:n], pingMagic) {
+				_, _ = b.conn.WriteToUDP(pongMagic, addr)
+			}
+			continue
 		}
+		b.peer.Store(addr)
 		b.stats.pktIn.Add(1)
 		b.stats.bytesIn.Add(uint64(n))
 		var proto tcpip.NetworkProtocolNumber

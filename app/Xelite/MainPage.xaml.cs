@@ -23,6 +23,8 @@ namespace Xelite
         private readonly ObservableCollection<ServerItem> _servers = new ObservableCollection<ServerItem>();
         private readonly ObservableCollection<SubscriptionItem> _subscriptions = new ObservableCollection<SubscriptionItem>();
         private readonly DispatcherTimer _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        private readonly DispatcherTimer _pingTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
+        private bool _pinging;
         private List<Subscription> _model = new List<Subscription>();
         private VpnManagementConnectionStatus _status = VpnManagementConnectionStatus.Disconnected;
         private Brush _accentBrush;
@@ -37,6 +39,8 @@ namespace Xelite
             ServerList.ItemsSource = _servers;
             SubscriptionList.ItemsSource = _subscriptions;
             _statusTimer.Tick += async (s, e) => await RefreshStatusAsync();
+            _pingTimer.Tick += async (s, e) => await UpdatePingAsync();
+            MainPivot.SelectionChanged += async (s, e) => await UpdatePingAsync();
             Loaded += MainPage_Loaded;
         }
 
@@ -59,7 +63,9 @@ namespace Xelite
             _model = await SubscriptionStore.LoadAsync();
             Rebuild();
             _statusTimer.Start();
+            _pingTimer.Start();
             await RefreshStatusAsync();
+            await UpdatePingAsync();
 
             if (AppSettings.Current.UpdateOnStart && _model.Any(s => !s.IsManual))
             {
@@ -140,6 +146,8 @@ namespace Xelite
             }
             AppSettings.Current.SelectedLink = item.Key;
             UpdateHome();
+            PingText.Text = "…";
+            PingDetailText.Text = "";
 
             // Switching servers while connected: reconnect with the new one.
             if (_status == VpnManagementConnectionStatus.Connected)
@@ -430,6 +438,66 @@ namespace Xelite
                 string.Format("connections: {0} tcp, {1} udp{2}{3}", tcp, udp,
                     rejected > 0 ? " · " + rejected + " IPv6 blocked" : "",
                     errors > 0 ? " · " + errors + " errors" : "");
+        }
+
+        /// <summary>
+        /// Pings the server(s) being used: the connected ones (by resolved IP, which
+        /// bypasses the tunnel) or, when disconnected, the selected entry.
+        /// For an auto entry the best of up to 8 servers is shown.
+        /// </summary>
+        private async Task UpdatePingAsync()
+        {
+            if (_pinging || MainPivot.SelectedIndex != 0)
+            {
+                return;
+            }
+            _pinging = true;
+            try
+            {
+                List<KeyValuePair<ProxyLink, string>> targets;
+                if (_status == VpnManagementConnectionStatus.Connected && VpnService.LastServers.Count > 0)
+                {
+                    targets = VpnService.LastServers.Take(8).ToList();
+                }
+                else if (Selected != null)
+                {
+                    targets = Selected.Links.Take(8).Select(l => new KeyValuePair<ProxyLink, string>(l, l.Address)).ToList();
+                }
+                else
+                {
+                    PingText.Text = "—";
+                    PingDetailText.Text = "";
+                    return;
+                }
+                var tcp = targets.Where(t => t.Key.Protocol != "hysteria2").ToList();
+                if (tcp.Count == 0)
+                {
+                    PingText.Text = "n/a";
+                    PingDetailText.Text = "hysteria2 uses UDP; TCP ping is not possible";
+                    return;
+                }
+                var results = await Task.WhenAll(tcp.Select(t => VpnService.PingAsync(t.Value, t.Key.Port)));
+                var ok = results.Select((ms, i) => new { ms, link = tcp[i].Key }).Where(r => r.ms >= 0).OrderBy(r => r.ms).ToList();
+                if (ok.Count == 0)
+                {
+                    PingText.Text = "timeout";
+                    PingDetailText.Text = tcp.Count == 1 ? tcp[0].Key.Name : "none of " + tcp.Count + " servers answered";
+                    return;
+                }
+                PingText.Text = ok[0].ms + " ms";
+                PingDetailText.Text = tcp.Count == 1
+                    ? ok[0].link.Name
+                    : "best of " + tcp.Count + ": " + ok[0].link.Name + (ok.Count < tcp.Count ? " · " + (tcp.Count - ok.Count) + " not answering" : "");
+            }
+            catch (Exception ex)
+            {
+                PingText.Text = "error";
+                PingDetailText.Text = ex.Message;
+            }
+            finally
+            {
+                _pinging = false;
+            }
         }
 
         private async void CheckIp_Click(object sender, RoutedEventArgs e)

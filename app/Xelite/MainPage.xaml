@@ -108,6 +108,12 @@
                         <TextBlock x:Name="FlowsText" Style="{StaticResource ItemSubtitle}" TextWrapping="Wrap"
                                    Margin="0,8,0,0" />
 
+                        <StackPanel Margin="0,20,0,0">
+                            <TextBlock Text="server ping" Style="{StaticResource SectionLabel}" />
+                            <TextBlock x:Name="PingText" Text="—" FontSize="32" FontWeight="Light" />
+                            <TextBlock x:Name="PingDetailText" Style="{StaticResource ItemSubtitle}" TextWrapping="Wrap" />
+                        </StackPanel>
+
                         <Grid Margin="0,20,0,0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
