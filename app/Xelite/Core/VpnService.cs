@@ -401,6 +401,7 @@ namespace Xelite.Core
             var tempPluginLog = Path.Combine(ApplicationData.Current.TemporaryFolder.Path, "vpn.log");
             return "--- app ---" + Environment.NewLine + ReadTail(AppLogPath, 3000) + Environment.NewLine +
                    "--- vpn plug-in ---" + Environment.NewLine + ReadTail(PluginLogPath, 4000) + ReadTail(tempPluginLog, 2000) + Environment.NewLine +
+                   "--- traffic ---" + Environment.NewLine + ReadTail(Path.Combine(DataDir, "core.stats"), 1000) + Environment.NewLine +
                    "--- xray ---" + Environment.NewLine + ReadTail(XrayLogPath, 12000);
         }
 

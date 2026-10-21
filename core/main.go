@@ -22,6 +22,7 @@ func main() {
 	port := flag.Int("port", 10808, "loopback UDP port used for the packet bridge")
 	mtu := flag.Int("mtu", 1500, "MTU of the VPN interface")
 	statusPath := flag.String("status", "", "file to write startup status to")
+	statsPath := flag.String("stats", "", "file to write traffic counters to every few seconds")
 	ppid := flag.Int("ppid", 0, "exit when the process with this PID exits")
 	flag.Parse()
 
@@ -52,6 +53,9 @@ func main() {
 	}
 	defer b.Close()
 	writeStatus("ready")
+	if *statsPath != "" {
+		go b.stats.writeLoop(*statsPath, b.ctx.Done())
+	}
 
 	if *ppid != 0 {
 		go func() {

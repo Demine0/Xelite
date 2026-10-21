@@ -46,6 +46,7 @@ type bridge struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	once   sync.Once
+	stats  stats
 }
 
 func newBridge(inst *core.Instance, port int, mtu uint32) (*bridge, error) {
@@ -123,6 +124,8 @@ func (b *bridge) readLoop() {
 		if n < header.IPv4MinimumSize {
 			continue // keep-alive / hello datagram
 		}
+		b.stats.pktIn.Add(1)
+		b.stats.bytesIn.Add(uint64(n))
 		var proto tcpip.NetworkProtocolNumber
 		switch header.IPVersion(buf[:n]) {
 		case header.IPv4Version:
@@ -152,7 +155,10 @@ func (b *bridge) writeLoop() {
 		v.Release()
 		pkt.DecRef()
 		if peer := b.peer.Load(); peer != nil {
-			_, _ = b.conn.WriteToUDP(data, peer)
+			if _, err := b.conn.WriteToUDP(data, peer); err == nil {
+				b.stats.pktOut.Add(1)
+				b.stats.bytesOut.Add(uint64(len(data)))
+			}
 		}
 	}
 }
@@ -184,8 +190,10 @@ func (b *bridge) handleTCP(r *tcp.ForwarderRequest) {
 	dst := xnet.TCPDestination(xnet.IPAddress(id.LocalAddress.AsSlice()), xnet.Port(id.LocalPort))
 	go func() {
 		defer local.Close()
+		b.stats.tcp.Add(1)
 		remote, err := core.Dial(b.flowContext(src), b.inst, dst)
 		if err != nil {
+			b.stats.dialFailed(dst, err)
 			errors.LogInfo(b.ctx, "tun: dial ", dst, " failed: ", err)
 			return
 		}
@@ -224,8 +232,10 @@ func (b *bridge) handleUDP(r *udp.ForwarderRequest) bool {
 		defer local.Close()
 		ctx, cancel := context.WithCancel(b.flowContext(src))
 		defer cancel()
+		b.stats.udp.Add(1)
 		remote, err := core.Dial(ctx, b.inst, dst)
 		if err != nil {
+			b.stats.dialFailed(dst, err)
 			errors.LogInfo(b.ctx, "tun: dial ", dst, " failed: ", err)
 			return
 		}

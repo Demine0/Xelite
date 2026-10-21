@@ -22,6 +22,7 @@ namespace Xelite.VpnTask
 
         private string PidFile => Path.Combine(_dataDir, "core.pid");
         private string StatusFile => Path.Combine(_dataDir, "core.status");
+        private string StatsFile => Path.Combine(_dataDir, "core.stats");
 
         /// <summary>Starts the core and waits until it reports "ready".</summary>
         public async Task StartAsync(string configPath, int port, int mtu)
@@ -32,8 +33,8 @@ namespace Xelite.VpnTask
                 File.Delete(StatusFile);
             }
 
-            var cmd = string.Format("\"{0}\" -config \"{1}\" -port {2} -mtu {3} -status \"{4}\" -ppid {5}",
-                _exePath, configPath, port, mtu, StatusFile, NativeMethods.GetCurrentProcessId());
+            var cmd = string.Format("\"{0}\" -config \"{1}\" -port {2} -mtu {3} -status \"{4}\" -stats \"{5}\" -ppid {6}",
+                _exePath, configPath, port, mtu, StatusFile, StatsFile, NativeMethods.GetCurrentProcessId());
             var si = new NativeMethods.STARTUPINFO { cb = Marshal.SizeOf<NativeMethods.STARTUPINFO>() };
             NativeMethods.PROCESS_INFORMATION pi;
             if (!NativeMethods.CreateProcessW(_exePath, cmd, IntPtr.Zero, IntPtr.Zero, false,

@@ -26,9 +26,16 @@ namespace Xelite.VpnTask
         private DatagramSocket _socket;
         private CoreProcess _core;
 
+        // Traffic counters, logged at the first packet each way and then every LogEvery packets.
+        private const long LogEvery = 2000;
+        private long _sent;
+        private long _received;
+
         public void Connect(VpnChannel channel)
         {
             Log(channel, "connect requested");
+            _sent = 0;
+            _received = 0;
             PluginLog.SetState("connecting");
             try
             {
@@ -114,6 +121,11 @@ namespace Xelite.VpnTask
             while (packets.Size > 0)
             {
                 encapulatedPackets.Append(packets.RemoveAtBegin());
+                var n = ++_sent;
+                if (n == 1 || n % LogEvery == 0)
+                {
+                    Log(channel, "to xelite-core: " + n + " packets");
+                }
             }
         }
 
@@ -132,6 +144,11 @@ namespace Xelite.VpnTask
             src.CopyTo(0, packet.Buffer, 0, src.Length);
             packet.Buffer.Length = src.Length;
             decapsulatedPackets.Append(packet);
+            var n = ++_received;
+            if (n == 1 || n % LogEvery == 0)
+            {
+                Log(channel, "from xelite-core: " + n + " packets");
+            }
         }
 
         private void Cleanup()
