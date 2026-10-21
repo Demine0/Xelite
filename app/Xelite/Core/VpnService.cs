@@ -194,6 +194,15 @@ namespace Xelite.Core
             }
             var status = await Call("connect VPN profile", a => a.ConnectProfileAsync(profile));
             AppLog("ConnectProfileAsync -> " + status + ", plug-in state '" + ReadState() + "'");
+            if (status != VpnManagementErrorStatus.Ok && FileSize(PluginLogPath) == pluginLogSize)
+            {
+                // Right after a disconnect Windows is still tearing the old tunnel down and
+                // refuses without starting the plug-in; a second try a moment later works.
+                await Task.Delay(3000);
+                AppLog("retrying ConnectProfileAsync");
+                status = await Call("connect VPN profile", a => a.ConnectProfileAsync(profile));
+                AppLog("ConnectProfileAsync -> " + status + ", plug-in state '" + ReadState() + "'");
+            }
             if (status != VpnManagementErrorStatus.Ok)
             {
                 var pluginRan = FileSize(PluginLogPath) > pluginLogSize;

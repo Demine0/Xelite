@@ -24,14 +24,8 @@ $root = $PSScriptRoot
 # 1. Go engine
 $core = Join-Path $root "build\$Platform\xelite-core.exe"
 if (-not (Test-Path $core)) {
-    $goVersion = (& go version) 2>$null
-    if ($goVersion -notmatch "go1\.25\.") { throw "Go 1.25.x is required to build xelite-core (found: $goVersion)" }
-    $env:GOOS = "windows"; $env:GOARM = "7"; $env:CGO_ENABLED = "0"; $env:GOTOOLCHAIN = "local"
-    $env:GOARCH = if ($Platform -eq "ARM") { "arm" } else { "amd64" }
-    New-Item -ItemType Directory -Force (Split-Path $core) | Out-Null
-    Push-Location (Join-Path $root "core")
-    try { & go build -trimpath -ldflags "-s -w -buildid=" -o $core . ; if ($LASTEXITCODE) { throw "go build failed" } }
-    finally { Pop-Location; Remove-Item Env:GOOS, Env:GOARCH, Env:GOARM }
+    # build-core.sh vendors Xray-core and applies core/patches; run it with Git Bash or WSL.
+    throw "$core is missing. Run ./build-core.sh first (Git Bash, WSL, macOS or Linux)."
 }
 
 # 2. Signing certificate (self-signed, Publisher must match the manifest: CN=Xelite)

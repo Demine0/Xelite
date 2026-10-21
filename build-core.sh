@@ -28,10 +28,13 @@ if ! command -v go >/dev/null 2>&1 || ! go version | grep -q "go1\.25\."; then
 fi
 export GOTOOLCHAIN=local CGO_ENABLED=0
 
+# Vendor Xray-core and apply backported fixes (core/patches).
+(cd core && "$GO" mod vendor && sh patches/apply.sh)
+
 build() {
     mkdir -p "build/$1"
     echo "Building build/$1/xelite-core.exe ($2/$3)"
-    (cd core && GOOS=windows GOARCH=$3 GOARM=7 "$GO" build -trimpath \
+    (cd core && GOOS=windows GOARCH=$3 GOARM=7 "$GO" build -mod=vendor -trimpath \
         -ldflags "-s -w -buildid=" -o "../build/$1/xelite-core.exe" .)
 }
 

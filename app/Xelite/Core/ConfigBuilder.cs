@@ -214,7 +214,9 @@ namespace Xelite.Core
                     throw new NotSupportedException(link.Protocol);
             }
 
-            outbound["streamSettings"] = Stream(link);
+            var stream = Stream(link);
+            NormalizeStream(stream);
+            outbound["streamSettings"] = stream;
             return outbound;
         }
 
@@ -249,6 +251,7 @@ namespace Xelite.Core
                         tls["serverName"] = Str(link.Address);
                     }
                 }
+                NormalizeStream(stream);
                 // The dial address is now an IP, so HTTP-based transports need an explicit Host.
                 foreach (var key in new[] { "wsSettings", "httpupgradeSettings", "xhttpSettings", "splithttpSettings" })
                 {
@@ -260,6 +263,69 @@ namespace Xelite.Core
                 }
             }
             return outbound;
+        }
+
+        /// <summary>
+        /// Rewrites XHTTP options added after Xray v26.2.6 (which the bundled core
+        /// would reject) into their older equivalents. Panels generate configs
+        /// for the newest Xray.
+        /// </summary>
+        private static void NormalizeStream(JsonObject stream)
+        {
+            foreach (var key in new[] { "xhttpSettings", "splithttpSettings" })
+            {
+                var xhttp = stream.GetNamedObject(key, null);
+                if (xhttp == null)
+                {
+                    continue;
+                }
+                NormalizeXhttp(xhttp);
+                var extra = xhttp.GetNamedObject("extra", null);
+                if (extra != null)
+                {
+                    NormalizeXhttp(extra);
+                    var download = extra.GetNamedObject("downloadSettings", null);
+                    if (download != null)
+                    {
+                        NormalizeStream(download);
+                    }
+                }
+            }
+        }
+
+        private static void NormalizeXhttp(JsonObject x)
+        {
+            // "auto" (v26.3+) accepts any placement on the server; "body" is the old default.
+            if (x.GetNamedString("uplinkDataPlacement", "") == "auto")
+            {
+                x.Remove("uplinkDataPlacement");
+            }
+            // v26.3+ allows a range ("1000-2000" or {from, to}); v26.2.6 wants one number.
+            IJsonValue chunk;
+            if (x.TryGetValue("uplinkChunkSize", out chunk))
+            {
+                double size = 0;
+                if (chunk.ValueType == JsonValueType.String)
+                {
+                    double.TryParse(chunk.GetString().Split('-')[0].Trim(), out size);
+                }
+                else if (chunk.ValueType == JsonValueType.Object)
+                {
+                    size = chunk.GetObject().GetNamedNumber("from", 0);
+                }
+                else if (chunk.ValueType == JsonValueType.Number)
+                {
+                    size = chunk.GetNumber();
+                }
+                if (size > 0)
+                {
+                    x["uplinkChunkSize"] = JsonValue.CreateNumberValue(Math.Floor(size));
+                }
+                else
+                {
+                    x.Remove("uplinkChunkSize");
+                }
+            }
         }
 
         private static JsonObject Stream(ProxyLink link)
