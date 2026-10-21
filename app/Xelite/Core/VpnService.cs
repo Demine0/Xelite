@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Windows.ApplicationModel;
+using Windows.ApplicationModel.Background;
 using Windows.Data.Json;
 using Windows.Foundation;
 using Windows.Networking;
@@ -180,6 +181,7 @@ namespace Xelite.Core
             TrimLog(PluginLogPath);
             TrimLog(AppLogPath);
 
+            await EnsureBackgroundAccessAsync();
             var profile = await EnsureProfileAsync();
             var pluginLogSize = FileSize(PluginLogPath);
             AppLog("ConnectProfileAsync(" + profile.ProfileName + ", " + profile.VpnPluginPackageFamilyName + ")");
@@ -196,9 +198,13 @@ namespace Xelite.Core
             {
                 var pluginRan = FileSize(PluginLogPath) > pluginLogSize;
                 var lastLine = LastLine(PluginLogPath);
-                throw new InvalidOperationException(pluginRan && lastLine.Length > 0
-                    ? "Connect failed: " + status + "\n" + lastLine
-                    : "Connect failed: " + status + "\nThe VPN plug-in did not start. Try ⋯ → reset VPN profile, then connect again.");
+                if (pluginRan && lastLine.Length > 0)
+                {
+                    throw new InvalidOperationException("Connect failed: " + status + "\n" + lastLine);
+                }
+                // The plug-in never ran: check whether Windows can start the task at all.
+                var test = await TestPluginAsync();
+                throw new InvalidOperationException("Connect failed: " + status + "\nThe VPN plug-in did not start.\n\nself-test: " + test);
             }
 
             // "Ok" only means the request was accepted; wait for the plug-in's own result.
@@ -278,6 +284,83 @@ namespace Xelite.Core
                 throw new InvalidOperationException("Cannot resolve " + host);
             }
             return best.CanonicalName;
+        }
+
+        private const string TestTaskName = "XelitePluginTest";
+
+        /// <summary>
+        /// Background tasks on Windows 10 Mobile only run after the app has asked
+        /// for background access. The VPN plug-in is a background task too.
+        /// </summary>
+        public static async Task<BackgroundAccessStatus> EnsureBackgroundAccessAsync()
+        {
+            BackgroundAccessStatus access;
+            try
+            {
+                access = await BackgroundExecutionManager.RequestAccessAsync();
+            }
+            catch (Exception e)
+            {
+                AppLog("RequestAccessAsync failed: 0x" + e.HResult.ToString("X8") + " " + e.Message);
+                return BackgroundAccessStatus.Unspecified;
+            }
+            AppLog("background access: " + access);
+            if (access == BackgroundAccessStatus.Denied || access == BackgroundAccessStatus.DeniedByUser ||
+                access == BackgroundAccessStatus.DeniedBySystemPolicy)
+            {
+                throw new InvalidOperationException("Windows does not let Xelite run in the background (" + access + "), " +
+                                                    "which the VPN needs. Turn on Xelite in Settings → Privacy → Background apps, " +
+                                                    "turn off Battery saver, then connect again.");
+            }
+            return access;
+        }
+
+        /// <summary>
+        /// Starts the plug-in's background task with an ApplicationTrigger and
+        /// reports whether it ran. Tells "Windows can't run the task" apart from
+        /// "the VPN platform doesn't start it".
+        /// </summary>
+        public static async Task<string> TestPluginAsync()
+        {
+            try
+            {
+                await EnsureBackgroundAccessAsync();
+                foreach (var task in BackgroundTaskRegistration.AllTasks.Values)
+                {
+                    if (task.Name == TestTaskName)
+                    {
+                        task.Unregister(true);
+                    }
+                }
+                var trigger = new ApplicationTrigger();
+                var builder = new BackgroundTaskBuilder { Name = TestTaskName, TaskEntryPoint = "Xelite.VpnTask.VpnBackgroundTask" };
+                builder.SetTrigger(trigger);
+                var registration = builder.Register();
+                var size = FileSize(PluginLogPath);
+                var result = await trigger.RequestAsync();
+                AppLog("self-test: ApplicationTrigger.RequestAsync -> " + result);
+                string outcome = null;
+                for (var i = 0; i < 40 && outcome == null; i++)
+                {
+                    await Task.Delay(250);
+                    if (FileSize(PluginLogPath) > size)
+                    {
+                        outcome = "OK, the background task runs (" + LastLine(PluginLogPath) + "). " +
+                                  "so Windows can run it, but the VPN platform does not start it.";
+                    }
+                }
+                registration.Unregister(true);
+                outcome = outcome ?? "the background task did not run (trigger result " + result + "). " +
+                          "Windows cannot start Xelite's background code at all.";
+                AppLog("self-test: " + outcome);
+                return outcome;
+            }
+            catch (Exception e)
+            {
+                var outcome = "error 0x" + e.HResult.ToString("X8") + " " + e.Message;
+                AppLog("self-test: " + outcome);
+                return outcome;
+            }
         }
 
         /// <summary>Deletes the Xelite VPN profile; the next connect creates it again.</summary>

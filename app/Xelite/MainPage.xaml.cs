@@ -41,6 +41,15 @@ namespace Xelite
         {
             _accentBrush = ConnectButton.Background;
             LoadSettings();
+            // Ask once up front; background access is needed for the VPN plug-in.
+            try
+            {
+                await VpnService.EnsureBackgroundAccessAsync();
+            }
+            catch (Exception ex)
+            {
+                await ShowMessageAsync(ex.Message);
+            }
             var v = Package.Current.Id.Version;
             AboutText.Text = string.Format("Xelite {0}.{1}.{2}\nXray-core v26.2.6 for Windows 10 Mobile", v.Major, v.Minor, v.Build);
 
@@ -289,6 +298,11 @@ namespace Xelite
                 await SaveAndRebuildAsync();
                 return;
             }
+        }
+
+        private async void TestPlugin_Click(object sender, RoutedEventArgs e)
+        {
+            await RunBusyAsync(async () => await ShowMessageAsync("self-test: " + await VpnService.TestPluginAsync()));
         }
 
         private async void ResetProfile_Click(object sender, RoutedEventArgs e)
