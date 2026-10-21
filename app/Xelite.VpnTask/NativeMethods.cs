@@ -86,6 +86,9 @@ namespace Xelite.VpnTask
         public static extern IntPtr GetEnvironmentStringsW();
 
         [DllImport(ProcessEnvironment)]
+        public static extern IntPtr GetCommandLineW();
+
+        [DllImport(ProcessEnvironment)]
         public static extern bool FreeEnvironmentStringsW(IntPtr block);
 
         [DllImport(Synch)]

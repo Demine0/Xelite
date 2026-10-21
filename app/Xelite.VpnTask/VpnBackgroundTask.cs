@@ -25,7 +25,8 @@ namespace Xelite.VpnTask
                     if (_plugin == null)
                     {
                         PluginLog.Write("plug-in activated (" + (taskInstance.TriggerDetails?.GetType().Name ?? "no trigger") +
-                                        "), host command line: " + Environment.CommandLine);
+                                        "), host command line: " +
+                                        System.Runtime.InteropServices.Marshal.PtrToStringUni(NativeMethods.GetCommandLineW()));
                         _plugin = new XrayVpnPlugin();
                     }
                 }
