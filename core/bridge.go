@@ -35,6 +35,9 @@ const (
 
 	udpIdleTimeout = 60 * time.Second
 	dnsIdleTimeout = 15 * time.Second
+
+	// dns6Fallback answers DNS queries sent to IPv6 servers while IPv6 is rejected.
+	dns6Fallback = "1.1.1.1"
 )
 
 var (
@@ -271,9 +274,17 @@ func (b *bridge) handleTCP(r *tcp.ForwarderRequest) {
 
 func (b *bridge) handleUDP(r *udp.ForwarderRequest) bool {
 	id := r.ID()
+	dst := xnet.UDPDestination(xnet.IPAddress(id.LocalAddress.AsSlice()), xnet.Port(id.LocalPort))
 	if b.rejectIPv6 && id.LocalAddress.Len() == 16 {
-		b.stats.ipv6Rejected.Add(1)
-		return true // dropped
+		if id.LocalPort != 53 {
+			b.stats.ipv6Rejected.Add(1)
+			return true // dropped
+		}
+		// Windows asks the Wi-Fi's IPv6 DNS server first. Dropping those queries
+		// made every first lookup wait ~30 s for timeouts, so answer them through
+		// an IPv4 resolver instead; the reply still comes from the IPv6 address.
+		b.stats.dns6Redirected.Add(1)
+		dst = xnet.UDPDestination(xnet.ParseAddress(dns6Fallback), 53)
 	}
 	var wq waiter.Queue
 	ep, terr := r.CreateEndpoint(&wq)
@@ -283,7 +294,6 @@ func (b *bridge) handleUDP(r *udp.ForwarderRequest) bool {
 	local := gonet.NewUDPConn(&wq, ep)
 
 	src := xnet.UDPDestination(xnet.IPAddress(id.RemoteAddress.AsSlice()), xnet.Port(id.RemotePort))
-	dst := xnet.UDPDestination(xnet.IPAddress(id.LocalAddress.AsSlice()), xnet.Port(id.LocalPort))
 	timeout := udpIdleTimeout
 	if id.LocalPort == 53 {
 		timeout = dnsIdleTimeout

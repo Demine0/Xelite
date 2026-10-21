@@ -21,11 +21,12 @@ type stats struct {
 	dialErrors        atomic.Uint64
 	ipv6Rejected      atomic.Uint64
 
-	writeErrors atomic.Uint64
-	fileErr     atomic.Pointer[string]
-	relayed     atomic.Uint64 // outbound connections opened through the plug-in relay
-	dnsQueries  atomic.Uint64 // UDP datagrams to port 53 from apps
-	dnsAnswers  atomic.Uint64 // UDP datagrams from port 53 back to apps
+	writeErrors    atomic.Uint64
+	fileErr        atomic.Pointer[string]
+	relayed        atomic.Uint64 // outbound connections opened through the plug-in relay
+	dnsQueries     atomic.Uint64 // UDP datagrams to port 53 from apps
+	dnsAnswers     atomic.Uint64 // UDP datagrams from port 53 back to apps
+	dns6Redirected atomic.Uint64 // DNS flows to IPv6 servers answered via IPv4
 
 	mu        sync.Mutex
 	lastError string
@@ -167,9 +168,9 @@ func (b *bridge) heartbeatLoop(statsErr func() string) {
 		if to == nil {
 			continue
 		}
-		msg := fmt.Sprintf("XELITE-HB %d pktIn=%d pktOut=%d tcp=%d udp=%d relayed=%d dnsQ=%d dnsA=%d statsErr=%s",
+		msg := fmt.Sprintf("XELITE-HB %d pktIn=%d pktOut=%d tcp=%d udp=%d relayed=%d dnsQ=%d dnsA=%d dns6=%d statsErr=%s",
 			n, b.stats.pktIn.Load(), b.stats.pktOut.Load(), b.stats.tcp.Load(), b.stats.udp.Load(),
-			b.stats.relayed.Load(), b.stats.dnsQueries.Load(), b.stats.dnsAnswers.Load(), statsErr())
+			b.stats.relayed.Load(), b.stats.dnsQueries.Load(), b.stats.dnsAnswers.Load(), b.stats.dns6Redirected.Load(), statsErr())
 		_, _ = b.conn.WriteToUDP([]byte(msg), to)
 	}
 }
