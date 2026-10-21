@@ -14,6 +14,7 @@ namespace Xelite.VpnTask
         private const string Synch = "api-ms-win-core-synch-l1-1-0.dll";
 
         public const uint CREATE_NO_WINDOW = 0x08000000;
+        public const uint CREATE_BREAKAWAY_FROM_JOB = 0x01000000;
         public const uint PROCESS_TERMINATE = 0x0001;
         public const uint SYNCHRONIZE = 0x00100000;
         public const uint WAIT_TIMEOUT = 0x00000102;
@@ -74,6 +75,10 @@ namespace Xelite.VpnTask
 
         [DllImport(ProcessThreads, SetLastError = true)]
         public static extern bool GetExitCodeProcess(IntPtr hProcess, out uint lpExitCode);
+
+        [DllImport(ProcessThreads, SetLastError = true)]
+        public static extern bool GetProcessTimes(IntPtr hProcess, out long creationTime, out long exitTime,
+            out long kernelTime, out long userTime);
 
         [DllImport(Synch)]
         public static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);

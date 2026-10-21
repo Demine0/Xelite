@@ -45,10 +45,22 @@ namespace Xelite.VpnTask
             }
             var si = new NativeMethods.STARTUPINFO { cb = Marshal.SizeOf<NativeMethods.STARTUPINFO>() };
             NativeMethods.PROCESS_INFORMATION pi;
-            if (!NativeMethods.CreateProcessW(_exePath, cmd, IntPtr.Zero, IntPtr.Zero, false,
-                    NativeMethods.CREATE_NO_WINDOW, IntPtr.Zero, _dataDir, ref si, out pi))
+            // Outside the app's job, Windows' app lifecycle manager can't freeze the engine
+            // together with the app; not every job allows it, so fall back to a normal child.
+            if (NativeMethods.CreateProcessW(_exePath, cmd, IntPtr.Zero, IntPtr.Zero, false,
+                    NativeMethods.CREATE_NO_WINDOW | NativeMethods.CREATE_BREAKAWAY_FROM_JOB, IntPtr.Zero, _dataDir, ref si, out pi))
             {
-                throw new InvalidOperationException("CreateProcess failed, error " + Marshal.GetLastWin32Error());
+                StartMode = "outside the app job";
+            }
+            else
+            {
+                var breakawayError = Marshal.GetLastWin32Error();
+                if (!NativeMethods.CreateProcessW(_exePath, cmd, IntPtr.Zero, IntPtr.Zero, false,
+                        NativeMethods.CREATE_NO_WINDOW, IntPtr.Zero, _dataDir, ref si, out pi))
+                {
+                    throw new InvalidOperationException("CreateProcess failed, error " + Marshal.GetLastWin32Error());
+                }
+                StartMode = "inside the app job (breakaway refused, error " + breakawayError + ")";
             }
             NativeMethods.CloseHandle(pi.hThread);
             _process = pi.hProcess;
@@ -88,6 +100,23 @@ namespace Xelite.VpnTask
             }
             Stop();
             throw new TimeoutException("xelite-core did not start in 10 seconds");
+        }
+
+        /// <summary>How the process was started, for the log.</summary>
+        public string StartMode { get; private set; }
+
+        /// <summary>CPU time used so far in ms, or -1 if the process has exited.</summary>
+        public long CpuMilliseconds()
+        {
+            var process = _process;
+            if (process == IntPtr.Zero || NativeMethods.WaitForSingleObject(process, 0) != NativeMethods.WAIT_TIMEOUT)
+            {
+                return -1;
+            }
+            long created, exited, kernel, user;
+            return NativeMethods.GetProcessTimes(process, out created, out exited, out kernel, out user)
+                ? (kernel + user) / 10000
+                : -2;
         }
 
         public void Stop()

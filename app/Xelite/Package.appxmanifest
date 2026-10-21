@@ -6,7 +6,7 @@
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   IgnorableNamespaces="uap mp rescap">
 
-  <Identity Name="Xelite.XrayVPN" Publisher="CN=Xelite" Version="1.15.0.0" />
+  <Identity Name="Xelite.XrayVPN" Publisher="CN=Xelite" Version="1.16.0.0" />
 
   <mp:PhoneIdentity PhoneProductId="76e87a7b-34b0-4416-ae95-f9d2f82abab5" PhonePublisherId="00000000-0000-0000-0000-000000000000" />
 

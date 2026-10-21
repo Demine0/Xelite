@@ -78,7 +78,7 @@ namespace Xelite.VpnTask
                 _core = new CoreProcess(Path.Combine(Package.Current.InstalledLocation.Path, "xelite-core.exe"), dataDir);
                 var allowIpv6 = settings.GetNamedBoolean("ipv6", false);
                 _core.StartAsync(Path.Combine(dataDir, "config.json"), port, mtu, allowIpv6, _relay.Port).Wait();
-                Log(channel, "xelite-core ready");
+                Log(channel, "xelite-core ready, started " + _core.StartMode);
                 OpenSideSocket(port);
                 if (!Control("XELITE-PING", "XELITE-PONG"))
                 {
@@ -296,8 +296,10 @@ namespace Xelite.VpnTask
                     while (!cts.IsCancellationRequested)
                     {
                         await Task.Delay(5000, cts.Token);
+                        var cpu = _core?.CpuMilliseconds() ?? -1;
                         PluginLog.Write("alive: to core " + _sent + ", from core " + _received +
-                                        ", send queue " + (_sendQueue?.Count ?? -1));
+                                        ", send queue " + (_sendQueue?.Count ?? -1) +
+                                        ", xelite-core cpu " + (cpu == -1 ? "EXITED" : cpu + " ms"));
                     }
                 }
                 catch (OperationCanceledException)
