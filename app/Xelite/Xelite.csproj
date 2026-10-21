@@ -79,6 +79,7 @@
     </Compile>
     <Compile Include="Core\AppSettings.cs" />
     <Compile Include="Core\ConfigBuilder.cs" />
+    <Compile Include="Core\DeviceInfo.cs" />
     <Compile Include="Core\ProxyLink.cs" />
     <Compile Include="Core\Subscription.cs" />
     <Compile Include="Core\VpnService.cs" />

@@ -62,6 +62,27 @@ namespace Xelite.Core
             set { Values.Values["userAgent"] = value; }
         }
 
+        /// <summary>Send x-hwid and device headers with subscription requests.</summary>
+        public bool SendHwid
+        {
+            get { return Get("sendHwid", true); }
+            set { Values.Values["sendHwid"] = value; }
+        }
+
+        /// <summary>User-entered HWID that replaces the device's own; empty to use the device's.</summary>
+        public string CustomHwid
+        {
+            get { return Get("customHwid", ""); }
+            set { Values.Values["customHwid"] = value; }
+        }
+
+        /// <summary>Random seed used when the system ID is unavailable.</summary>
+        public string GeneratedHwidSeed
+        {
+            get { return Get("hwidSeed", ""); }
+            set { Values.Values["hwidSeed"] = value; }
+        }
+
         /// <summary>Raw link of the selected server, or "auto:&lt;subscription id&gt;".</summary>
         public string SelectedLink
         {

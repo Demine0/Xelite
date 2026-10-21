@@ -436,7 +436,53 @@ namespace Xelite
             MtuBox.Text = s.Mtu.ToString();
             UserAgentBox.Text = s.UserAgent;
             LogLevelBox.SelectedItem = s.LogLevel;
+            SendHwidSwitch.IsOn = s.SendHwid;
+            ShowHwid();
             _loadingSettings = false;
+        }
+
+        private void ShowHwid()
+        {
+            HwidBox.Text = DeviceInfo.Hwid;
+            HwidInfoText.Text = (AppSettings.Current.CustomHwid.Length > 0 ? "custom ID. " : "") +
+                                "sent as x-hwid with " + DeviceInfo.Os + " " + DeviceInfo.OsVersion + ", " + DeviceInfo.Model +
+                                ". needed by providers with a device limit (Remnawave, Happ, Incy).";
+        }
+
+        private async void Hwid_LostFocus(object sender, RoutedEventArgs e)
+        {
+            var text = HwidBox.Text.Trim();
+            if (text == DeviceInfo.Hwid)
+            {
+                return;
+            }
+            if (text.Length == 0 || text == DeviceInfo.SystemHwid)
+            {
+                AppSettings.Current.CustomHwid = "";
+            }
+            else if (DeviceInfo.IsValidHwid(text))
+            {
+                // e.g. reuse the ID of an old device so it doesn't take another slot
+                AppSettings.Current.CustomHwid = text;
+            }
+            else
+            {
+                await ShowMessageAsync("a device ID is 10-64 characters: letters, digits, '-' and '='.");
+            }
+            ShowHwid();
+        }
+
+        private void CopyHwid_Click(object sender, RoutedEventArgs e)
+        {
+            var data = new DataPackage();
+            data.SetText(DeviceInfo.Hwid);
+            Clipboard.SetContent(data);
+        }
+
+        private void ResetHwid_Click(object sender, RoutedEventArgs e)
+        {
+            AppSettings.Current.CustomHwid = "";
+            ShowHwid();
         }
 
         private void Settings_Changed(object sender, RoutedEventArgs e)
@@ -465,6 +511,7 @@ namespace Xelite
             s.BypassLan = BypassLanSwitch.IsOn;
             s.BlockQuic = BlockQuicSwitch.IsOn;
             s.UpdateOnStart = UpdateOnStartSwitch.IsOn;
+            s.SendHwid = SendHwidSwitch.IsOn;
             int mtu;
             if (int.TryParse(MtuBox.Text, out mtu) && mtu >= 576 && mtu <= 9000)
             {

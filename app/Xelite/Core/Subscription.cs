@@ -66,8 +66,23 @@ namespace Xelite.Core
             using (var client = new HttpClient(filter))
             {
                 client.DefaultRequestHeaders.UserAgent.TryParseAdd(AppSettings.Current.UserAgent);
-                using (var response = await client.GetAsync(new Uri(Url)))
+                var request = new HttpRequestMessage(HttpMethod.Get, new Uri(Url));
+                if (AppSettings.Current.SendHwid)
                 {
+                    DeviceInfo.AddHeaders(request);
+                }
+                using (var response = await client.SendRequestAsync(request))
+                {
+                    // Remnawave reports device-limit problems in these headers (with 404 or an empty list).
+                    if (HeaderIsTrue(response, "x-hwid-max-devices-reached") || HeaderIsTrue(response, "x-hwid-limit"))
+                    {
+                        throw new InvalidOperationException("Device limit reached. Remove an old device in your provider's bot or panel, then update again.");
+                    }
+                    if (HeaderIsTrue(response, "x-hwid-not-supported") || (!AppSettings.Current.SendHwid && HeaderIsTrue(response, "x-hwid-active")
+                                                                          && response.StatusCode == HttpStatusCode.NotFound))
+                    {
+                        throw new InvalidOperationException("This provider requires a device ID. Turn on \"send device ID (HWID)\" in settings.");
+                    }
                     response.EnsureSuccessStatusCode();
                     var body = await response.Content.ReadAsStringAsync();
 
@@ -170,6 +185,12 @@ namespace Xelite.Core
             }
             Uri uri;
             return Uri.TryCreate(inner, UriKind.Absolute, out uri) && (uri.Scheme == "http" || uri.Scheme == "https") ? inner : null;
+        }
+
+        private static bool HeaderIsTrue(HttpResponseMessage response, string name)
+        {
+            string value;
+            return response.Headers.TryGetValue(name, out value) && value.Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
         }
 
         private void ParseUserInfo(string header)
