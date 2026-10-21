@@ -59,7 +59,10 @@ namespace Xelite.VpnTask
                 Log(channel, "transport associated, starting tunnel");
 
                 var routes = new VpnRouteAssignment { ExcludeLocalSubnets = settings.GetNamedBoolean("bypassLan", true) };
-                routes.Ipv4InclusionRoutes.Add(new VpnRoute(new HostName("0.0.0.0"), 0));
+                // Two /1 routes instead of 0.0.0.0/0: they are more specific than the
+                // system default route, so they always win (same trick as OpenVPN's def1).
+                routes.Ipv4InclusionRoutes.Add(new VpnRoute(new HostName("0.0.0.0"), 1));
+                routes.Ipv4InclusionRoutes.Add(new VpnRoute(new HostName("128.0.0.0"), 1));
                 foreach (var cidr in Strings(settings, "exclude"))
                 {
                     routes.Ipv4ExclusionRoutes.Add(ParseRoute(cidr));
@@ -73,6 +76,8 @@ namespace Xelite.VpnTask
                 var domains = new VpnDomainNameAssignment();
                 domains.DomainNameList.Add(new VpnDomainNameInfo(".", VpnDomainNameType.Suffix, dnsServers, new List<HostName>()));
 
+                Log(channel, "routes: include 0.0.0.0/1, 128.0.0.0/1; exclude " + string.Join(", ", Strings(settings, "exclude")) +
+                             "; dns " + string.Join(", ", Strings(settings, "dns")) + "; mtu " + mtu);
                 channel.StartExistingTransports(
                     new List<HostName> { new HostName(TunAddress) },
                     null,
