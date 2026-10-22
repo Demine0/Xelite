@@ -41,6 +41,8 @@ type stats struct {
 	flows     []string // the last finished TCP connections
 	open      map[*flow]struct{}
 	lookups   []string // the last DNS lookups apps made, with answers
+	syns      []string // the last TCP connection attempts (SYN) from apps
+	stackInfo func() string
 }
 
 const maxFlows = 20
@@ -133,10 +135,42 @@ const maxSamples = 6
 func (s *stats) sample(pkt []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Every connection attempt too: shows whether an app's SYN reached the
+	// core at all, and in what shape, when no TCP flow follows its lookup.
+	if isSYN(pkt) {
+		s.syns = append(s.syns, time.Now().Format("15:04:05")+" "+describePacket(pkt))
+		if len(s.syns) > maxFlows {
+			s.syns = s.syns[len(s.syns)-maxFlows:]
+		}
+	}
 	if len(s.samples) >= maxSamples {
 		return
 	}
 	s.samples = append(s.samples, describePacket(pkt))
+}
+
+// isSYN reports whether pkt opens a TCP connection (SYN without ACK).
+func isSYN(pkt []byte) bool {
+	var payload []byte
+	switch header.IPVersion(pkt) {
+	case header.IPv4Version:
+		ip := header.IPv4(pkt)
+		if !ip.IsValid(len(pkt)) || ip.TransportProtocol() != header.TCPProtocolNumber {
+			return false
+		}
+		payload = ip.Payload()
+	case header.IPv6Version:
+		ip := header.IPv6(pkt)
+		if !ip.IsValid(len(pkt)) || ip.TransportProtocol() != header.TCPProtocolNumber {
+			return false
+		}
+		payload = ip.Payload()
+	}
+	if len(payload) < header.TCPMinimumSize {
+		return false
+	}
+	f := header.TCP(payload).Flags()
+	return f.Contains(header.TCPFlagSyn) && !f.Contains(header.TCPFlagAck)
 }
 
 func (s *stats) writeFailed(to fmt.Stringer, err error) {
@@ -176,6 +210,12 @@ func (s *stats) String() string {
 	}
 	for _, l := range s.lookups {
 		line += "\ndns: " + l
+	}
+	for _, l := range s.syns {
+		line += "\nsyn: " + l
+	}
+	if s.stackInfo != nil {
+		line += "\nstack: " + s.stackInfo()
 	}
 	n := 0
 	for f := range s.open {
@@ -236,8 +276,8 @@ func describeTransport(family string, src, dst tcpip.Address, proto tcpip.Transp
 		}
 		t := header.TCP(payload)
 		ok := t.IsChecksumValid(src, dst, checksum.Checksum(t.Payload(), 0), uint16(len(t.Payload())))
-		return fmt.Sprintf("%s TCP %s:%d -> %s:%d flags %s, %d bytes, checksum %s",
-			family, src, t.SourcePort(), dst, t.DestinationPort(), t.Flags(), size, okText(ok))
+		return fmt.Sprintf("%s TCP %s:%d -> %s:%d flags %s, %d bytes (%d data), checksum %s",
+			family, src, t.SourcePort(), dst, t.DestinationPort(), t.Flags(), size, len(t.Payload()), okText(ok))
 	case header.UDPProtocolNumber:
 		if len(payload) < header.UDPMinimumSize {
 			break

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	stderrors "errors"
+	"fmt"
 	"io"
 	stdnet "net"
 	"strconv"
@@ -131,6 +132,14 @@ func newBridge(inst *core.Instance, port int, mtu uint32, rejectIPv6 bool, st *s
 
 	ctx, cancel := context.WithCancel(context.Background())
 	b := &bridge{inst: inst, conn: conn, ep: ep, stack: s, ctx: ctx, cancel: cancel, rejectIPv6: rejectIPv6, stats: st}
+	st.stackInfo = func() string {
+		// Packets gVisor drops before a flow reaches handleTCP/handleUDP.
+		ss := s.Stats()
+		return fmt.Sprintf("ip valid %d malformed %d bad dst %d, tcp valid %d invalid %d checksum %d synDrop %d inFlightDrop %d",
+			ss.IP.ValidPacketsReceived.Value(), ss.IP.MalformedPacketsReceived.Value(), ss.IP.InvalidDestinationAddressesReceived.Value(),
+			ss.TCP.ValidSegmentsReceived.Value(), ss.TCP.InvalidSegmentsReceived.Value(), ss.TCP.ChecksumErrors.Value(),
+			ss.TCP.ListenOverflowSynDrop.Value(), ss.TCP.ForwardMaxInFlightDrop.Value())
+	}
 
 	tcpForwarder := tcp.NewForwarder(s, 0, 2048, b.handleTCP)
 	s.SetTransportProtocolHandler(tcp.ProtocolNumber, tcpForwarder.HandlePacket)
