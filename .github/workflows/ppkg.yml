@@ -1,0 +1,41 @@
+name: ppkg
+
+on:
+  push:
+    paths:
+      - tools/ppkg/**
+      - .github/workflows/ppkg.yml
+  workflow_dispatch:
+
+jobs:
+  ppkg:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Imaging and Configuration Designer (Windows ADK)
+        shell: pwsh
+        run: |
+          $icd = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\Assessment and Deployment Kit" -Recurse -Filter icd.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $icd) {
+            Invoke-WebRequest "https://go.microsoft.com/fwlink/?linkid=2289980" -OutFile adksetup.exe
+            $p = Start-Process .\adksetup.exe -ArgumentList "/quiet /norestart /ceip off /features OptionId.ImagingAndConfigurationDesigner OptionId.DeploymentTools" -Wait -PassThru
+            "adksetup exit code: $($p.ExitCode)"
+            $icd = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\Assessment and Deployment Kit" -Recurse -Filter icd.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          }
+          if (-not $icd) { throw "icd.exe not found after installing the ADK" }
+          "ICD=$($icd.FullName)" | Out-File -Append $env:GITHUB_ENV
+          $icd.FullName
+      - name: Build the provisioning package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          & $env:ICD /Build-ProvisioningPackage /CustomizationXML:"$PWD\tools\ppkg\customizations.xml" /PackagePath:"$PWD\dist\xelite-network-isolation.ppkg" +Overwrite
+          if (-not (Test-Path dist\xelite-network-isolation.ppkg)) {
+            Get-ChildItem dist
+            throw "ICD did not produce the package"
+          }
+          Get-ChildItem dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xelite-ppkg
+          path: dist/*
