@@ -24,3 +24,11 @@ f=$X/core/core.go
 sed -i.bak -e 's/Version_x byte = 26/Version_x byte = 26/' -e 's/Version_y byte = 2$/Version_y byte = 10/' -e 's/Version_z byte = 6$/Version_z byte = 21/' "$f" && rm -f "$f.bak"
 grep -q 'Version_y byte = 10' "$f" && grep -q 'Version_z byte = 21' "$f"
 echo "patched: reported version 26.10.21"
+
+# XTLS/Xray-core v26.3: XHTTP packet-up sends at most scMaxEachPostBytes per
+# request instead of panicking when it is below 8192, and header/cookie uplink
+# placement defaults its chunk size. Panels pair uplinkDataPlacement "header"
+# with scMaxEachPostBytes 3072 and no uplinkChunkSize; v26.2.6 crashed on it.
+patch -s -p1 -d "$X" < patches/xhttp-small-uploads.patch
+grep -q 'should be bigger than 0' "$X/transport/internet/splithttp/dialer.go"
+echo "patched: small XHTTP uploads"

@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime/debug"
 	"syscall"
 
 	"github.com/xtls/xray-core/core"
@@ -42,6 +44,13 @@ func main() {
 		writeStatus("error: " + err.Error())
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+
+	// Nobody reads xelite-core's stderr on the phone: keep panics in a file
+	// next to the config, where the Device Portal can fetch them.
+	if f, err := os.OpenFile(filepath.Join(filepath.Dir(*configPath), "core.crash"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+		_ = debug.SetCrashOutput(f, debug.CrashOptions{})
+		f.Close()
 	}
 
 	cfg, err := os.ReadFile(*configPath)
