@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"sync"
@@ -37,17 +38,68 @@ type stats struct {
 	lastWrite string
 	samples   []string // first packets from the plug-in, decoded
 	flows     []string // the last finished TCP connections
+	open      map[*flow]struct{}
 }
 
 const maxFlows = 20
 
-// flowEnded records a finished TCP connection: destination, bytes each way and
-// duration, to see in the log whether apps' HTTP/HTTPS requests get answers.
-func (s *stats) flowEnded(dst string, up, down int64, d time.Duration) {
+// flow is a TCP connection handed to Xray, with bytes copied each way so far.
+type flow struct {
+	dst      string
+	start    time.Time
+	up, down atomic.Int64
+	firstUp  atomic.Int64 // ms after start of the first byte each way, 0 = none yet
+	firstDn  atomic.Int64
+}
+
+func (f *flow) String() string {
+	return fmt.Sprintf("%s %s up %d B down %d B, first up %s down %s, %.1f s",
+		f.start.Format("15:04:05"), f.dst, f.up.Load(), f.down.Load(),
+		firstText(f.firstUp.Load()), firstText(f.firstDn.Load()), time.Since(f.start).Seconds())
+}
+
+func firstText(ms int64) string {
+	if ms == 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%d ms", ms)
+}
+
+// countingWriter counts bytes into n and notes when the first one went through.
+type countingWriter struct {
+	w io.Writer
+	f *flow
+	n *atomic.Int64
+}
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	if c.n.Add(int64(n)) == int64(n) && n > 0 {
+		first := &c.f.firstUp
+		if c.n == &c.f.down {
+			first = &c.f.firstDn
+		}
+		first.Store(max(1, time.Since(c.f.start).Milliseconds()))
+	}
+	return n, err
+}
+
+// flowOpened starts tracking a TCP connection; its live counters are listed
+// as "open:" lines, to see in the log where apps' HTTP/HTTPS requests stall.
+func (s *stats) flowOpened(dst string) *flow {
+	f := &flow{dst: dst, start: time.Now()}
+	s.mu.Lock()
+	s.open[f] = struct{}{}
+	s.mu.Unlock()
+	return f
+}
+
+// flowEnded records a finished TCP connection as a "flow:" line.
+func (s *stats) flowEnded(f *flow) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.flows = append(s.flows, fmt.Sprintf("%s %s up %d B down %d B in %.1f s",
-		time.Now().Format("15:04:05"), dst, up, down, d.Seconds()))
+	delete(s.open, f)
+	s.flows = append(s.flows, f.String())
 	if len(s.flows) > maxFlows {
 		s.flows = s.flows[len(s.flows)-maxFlows:]
 	}
@@ -100,6 +152,13 @@ func (s *stats) String() string {
 	}
 	for _, f := range s.flows {
 		line += "\nflow: " + f
+	}
+	n := 0
+	for f := range s.open {
+		if n++; n > maxFlows {
+			break
+		}
+		line += "\nopen: " + f.String()
 	}
 	s.mu.Unlock()
 	return line

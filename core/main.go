@@ -49,7 +49,7 @@ func main() {
 		fail(err)
 	}
 	// Created before Xray starts so the relay dialer can count into it.
-	st := &stats{}
+	st := &stats{open: map[*flow]struct{}{}}
 	if *relayPort != 0 {
 		internet.UseAlternativeSystemDialer(&relayDialer{addr: fmt.Sprintf("127.0.0.1:%d", *relayPort), stats: st})
 	}
