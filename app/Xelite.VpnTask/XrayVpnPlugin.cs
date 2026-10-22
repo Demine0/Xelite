@@ -59,6 +59,14 @@ namespace Xelite.VpnTask
         public void Connect(VpnChannel channel)
         {
             Log(channel, "connect requested");
+            if (_core != null || _tunnel != null || _socket != null)
+            {
+                // Windows reconnects on its own (Connect without Disconnect) when the server
+                // transport breaks. The old sockets were still associated with the channel,
+                // so AssociateTransport failed with ArgumentException and the VPN stayed dead.
+                Log(channel, "previous connection still open, closing it first");
+                Cleanup();
+            }
             _sent = 0;
             _received = 0;
             PluginLog.SetState("connecting");
