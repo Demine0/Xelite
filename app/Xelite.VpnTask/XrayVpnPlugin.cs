@@ -133,14 +133,14 @@ namespace Xelite.VpnTask
                              (ack ? "acknowledged" : "NOT acknowledged") + "), starting tunnel");
 
                 var routes = new VpnRouteAssignment { ExcludeLocalSubnets = settings.GetNamedBoolean("bypassLan", true) };
-                // Two /1 routes instead of 0.0.0.0/0: they are more specific than the
-                // system default route, so they always win (same trick as OpenVPN's def1).
-                routes.Ipv4InclusionRoutes.Add(new VpnRoute(new HostName("0.0.0.0"), 1));
-                routes.Ipv4InclusionRoutes.Add(new VpnRoute(new HostName("128.0.0.0"), 1));
+                // One default route, not the two /1 halves (OpenVPN's def1): Windows counts
+                // a VPN's on-link routes as "private network" for app isolation, so with /1
+                // routes the whole internet was private and sandboxed apps without
+                // privateNetworkClientServer (Edge's pages) were blocked before the tunnel.
+                routes.Ipv4InclusionRoutes.Add(new VpnRoute(new HostName("0.0.0.0"), 0));
                 // Capture IPv6 too, or it leaks past the VPN over the Wi-Fi's own IPv6 route.
                 // xelite-core rejects it (unless enabled) so apps fall back to IPv4.
-                routes.Ipv6InclusionRoutes.Add(new VpnRoute(new HostName("::"), 1));
-                routes.Ipv6InclusionRoutes.Add(new VpnRoute(new HostName("8000::"), 1));
+                routes.Ipv6InclusionRoutes.Add(new VpnRoute(new HostName("::"), 0));
                 foreach (var cidr in Strings(settings, "exclude"))
                 {
                     routes.Ipv4ExclusionRoutes.Add(ParseRoute(cidr));
@@ -159,7 +159,7 @@ namespace Xelite.VpnTask
                 domains.DomainNameList.Add(new VpnDomainNameInfo(".", VpnDomainNameType.Suffix,
                     dnsServers.Count > 0 ? dnsServers : null, null));
 
-                Log(channel, "routes: include 0.0.0.0/1, 128.0.0.0/1, ::/1, 8000::/1 (ipv6 " + (allowIpv6 ? "proxied" : "rejected") + "); exclude " + string.Join(", ", Strings(settings, "exclude")) +
+                Log(channel, "routes: include 0.0.0.0/0, ::/0 (ipv6 " + (allowIpv6 ? "proxied" : "rejected") + "); exclude " + string.Join(", ", Strings(settings, "exclude")) +
                              "; dns " + string.Join(", ", Strings(settings, "dns")) + "; mtu " + mtu);
                 step = "starting the tunnel";
                 channel.StartExistingTransports(
