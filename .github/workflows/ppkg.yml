@@ -41,7 +41,13 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          & $env:ICD /Build-ProvisioningPackage /CustomizationXML:"$PWD\tools\ppkg\customizations.xml" /PackagePath:"$PWD\dist\xelite-network-isolation.ppkg" +Overwrite
+          # The common store has no NetworkIsolation policies; try the edition stores.
+          $dir = Split-Path $env:ICD
+          foreach ($store in "Mobile", "Desktop") {
+            "--- $store store"
+            & $env:ICD /Build-ProvisioningPackage /CustomizationXML:"$PWD\tools\ppkg\customizations.xml" /PackagePath:"$PWD\dist\xelite-network-isolation.ppkg" /StoreFile:"$dir\Microsoft-$store-Provisioning.dat" +Overwrite
+            if (Test-Path dist\xelite-network-isolation.ppkg) { "built with the $store store"; break }
+          }
           if (-not (Test-Path dist\xelite-network-isolation.ppkg)) {
             Get-ChildItem dist
             throw "ICD did not produce the package"
