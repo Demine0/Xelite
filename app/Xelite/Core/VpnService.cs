@@ -289,6 +289,7 @@ namespace Xelite.Core
                 ["server"] = JsonValue.CreateStringValue(links[0].Protocol == "hysteria2" || !settings.PlatformTransport ? "" : ips[0]),
                 ["xrayDns"] = JsonValue.CreateBooleanValue(settings.XrayDns),
                 ["directUpload"] = JsonValue.CreateBooleanValue(settings.DirectUpload),
+                ["routeMode"] = JsonValue.CreateStringValue(settings.RouteMode),
                 ["serverPort"] = JsonValue.CreateNumberValue(links[0].Port),
             };
             File.WriteAllText(Path.Combine(DataDir, "vpn.json"), vpn.Stringify());

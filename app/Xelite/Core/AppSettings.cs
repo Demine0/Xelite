@@ -34,6 +34,16 @@ namespace Xelite.Core
             set { Values.Values["balancer"] = value; }
         }
 
+        /// <summary>
+        /// How the VPN's routes cover the internet: "halves" (0.0.0.0/1 + 128.0.0.0/1),
+        /// "defaultHalves" (0.0.0.0/0 plus the halves) or "blocks" (eight /3 routes).
+        /// </summary>
+        public string RouteMode
+        {
+            get { return Get("routeMode", "halves"); }
+            set { Values.Values["routeMode"] = value; }
+        }
+
         /// <summary>Proxy IPv6 traffic instead of rejecting it (the server must have IPv6).</summary>
         public bool AllowIpv6
         {

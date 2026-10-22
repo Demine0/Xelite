@@ -697,6 +697,7 @@ namespace Xelite
             _loadingSettings = true;
             var s = AppSettings.Current;
             BalancerBox.SelectedIndex = s.BalancerStrategy == "leastLoad" ? 1 : 0;
+            RouteModeBox.SelectedIndex = s.RouteMode == "defaultHalves" ? 1 : s.RouteMode == "blocks" ? 2 : 0;
             DnsBox.Text = string.Join(", ", s.DnsServers);
             BypassLanSwitch.IsOn = s.BypassLan;
             BlockQuicSwitch.IsOn = s.BlockQuic;
@@ -766,6 +767,11 @@ namespace Xelite
                 return;
             }
             var s = AppSettings.Current;
+            var routeMode = (RouteModeBox.SelectedItem as ComboBoxItem)?.Tag as string;
+            if (routeMode != null)
+            {
+                s.RouteMode = routeMode;
+            }
             var balancer = (BalancerBox.SelectedItem as ComboBoxItem)?.Tag as string;
             if (balancer != null && balancer != s.BalancerStrategy)
             {

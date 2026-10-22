@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.ApplicationModel;
 using Windows.Data.Json;
@@ -141,14 +142,8 @@ namespace Xelite.VpnTask
                              (ack ? "acknowledged" : "NOT acknowledged") + "), starting tunnel");
 
                 var routes = new VpnRouteAssignment { ExcludeLocalSubnets = settings.GetNamedBoolean("bypassLan", true) };
-                // Two /1 routes instead of 0.0.0.0/0: they are more specific than the
-                // system default route, so they always win (same trick as OpenVPN's def1).
-                routes.Ipv4InclusionRoutes.Add(new VpnRoute(new HostName("0.0.0.0"), 1));
-                routes.Ipv4InclusionRoutes.Add(new VpnRoute(new HostName("128.0.0.0"), 1));
-                // Capture IPv6 too, or it leaks past the VPN over the Wi-Fi's own IPv6 route.
-                // xelite-core rejects it (unless enabled) so apps fall back to IPv4.
-                routes.Ipv6InclusionRoutes.Add(new VpnRoute(new HostName("::"), 1));
-                routes.Ipv6InclusionRoutes.Add(new VpnRoute(new HostName("8000::"), 1));
+                var routeMode = settings.GetNamedString("routeMode", "halves");
+                var included = AddInclusionRoutes(routes, routeMode);
                 foreach (var cidr in Strings(settings, "exclude"))
                 {
                     routes.Ipv4ExclusionRoutes.Add(ParseRoute(cidr));
@@ -167,7 +162,7 @@ namespace Xelite.VpnTask
                 domains.DomainNameList.Add(new VpnDomainNameInfo(".", VpnDomainNameType.Suffix,
                     dnsServers.Count > 0 ? dnsServers : null, null));
 
-                Log(channel, "routes: include 0.0.0.0/1, 128.0.0.0/1, ::/1, 8000::/1 (ipv6 " + (allowIpv6 ? "proxied" : "rejected") + "); exclude " + string.Join(", ", Strings(settings, "exclude")) +
+                Log(channel, "routes (" + routeMode + "): include " + included + " (ipv6 " + (allowIpv6 ? "proxied" : "rejected") + "); exclude " + string.Join(", ", Strings(settings, "exclude")) +
                              "; dns " + string.Join(", ", Strings(settings, "dns")) + "; mtu " + mtu);
                 step = "starting the tunnel";
                 channel.StartExistingTransports(
@@ -487,6 +482,53 @@ namespace Xelite.VpnTask
                 _relay.Dispose();
                 _relay = null;
             }
+        }
+
+        /// <summary>
+        /// Adds the routes that send the internet into the VPN, as chosen in settings
+        /// ("VPN routes"), and returns them for the log. IPv6 is captured the same way, or it
+        /// leaks past the VPN over the Wi-Fi's own IPv6 route; xelite-core rejects it (unless
+        /// enabled) so apps fall back to IPv4.
+        /// </summary>
+        private static string AddInclusionRoutes(VpnRouteAssignment routes, string mode)
+        {
+            var v4 = new List<VpnRoute>();
+            var v6 = new List<VpnRoute>();
+            if (mode == "blocks")
+            {
+                // Eight /3 routes: Windows counts a VPN's routes as private network for app
+                // isolation; see whether smaller blocks are treated differently.
+                for (var i = 0; i < 8; i++)
+                {
+                    v4.Add(new VpnRoute(new HostName((i * 32) + ".0.0.0"), 3));
+                    v6.Add(new VpnRoute(new HostName((i * 0x2000).ToString("x") + "::"), 3));
+                }
+            }
+            else
+            {
+                if (mode == "defaultHalves")
+                {
+                    // A default route counts as the internet, not as private network; the
+                    // halves keep traffic in the VPN where the Wi-Fi's default route would win.
+                    v4.Add(new VpnRoute(new HostName("0.0.0.0"), 0));
+                    v6.Add(new VpnRoute(new HostName("::"), 0));
+                }
+                // Two /1 routes instead of 0.0.0.0/0: they are more specific than the
+                // system default route, so they always win (same trick as OpenVPN's def1).
+                v4.Add(new VpnRoute(new HostName("0.0.0.0"), 1));
+                v4.Add(new VpnRoute(new HostName("128.0.0.0"), 1));
+                v6.Add(new VpnRoute(new HostName("::"), 1));
+                v6.Add(new VpnRoute(new HostName("8000::"), 1));
+            }
+            foreach (var r in v4)
+            {
+                routes.Ipv4InclusionRoutes.Add(r);
+            }
+            foreach (var r in v6)
+            {
+                routes.Ipv6InclusionRoutes.Add(r);
+            }
+            return string.Join(", ", v4.Concat(v6).Select(r => r.Address.CanonicalName + "/" + r.PrefixSize));
         }
 
         private static IEnumerable<string> Strings(JsonObject obj, string name)

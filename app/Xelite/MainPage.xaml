@@ -208,6 +208,15 @@
                         <TextBlock Style="{StaticResource ItemSubtitle}" TextWrapping="Wrap" Margin="0,0,0,16"
                                    Text="the auto entry of a subscription probes every server once a minute and switches automatically." />
 
+                        <ComboBox x:Name="RouteModeBox" Header="VPN routes" Margin="0,0,0,4"
+                                  HorizontalAlignment="Stretch" SelectionChanged="Settings_Changed">
+                            <ComboBoxItem Content="two halves (0.0.0.0/1 + 128.0.0.0/1)" Tag="halves" />
+                            <ComboBoxItem Content="default route + two halves" Tag="defaultHalves" />
+                            <ComboBoxItem Content="eight blocks (/3)" Tag="blocks" />
+                        </ComboBox>
+                        <TextBlock Style="{StaticResource ItemSubtitle}" TextWrapping="Wrap" Margin="0,0,0,16"
+                                   Text="how the VPN claims the internet; reconnect to apply. two halves is the tested default. Windows treats VPN routes as private network, which blocks Edge's pages; try the others if sites don't open in Edge and switch back if traffic stops going through the VPN." />
+
                         <ToggleSwitch x:Name="BypassLanSwitch" Header="bypass local network" Toggled="Settings_Changed" />
                         <ToggleSwitch x:Name="BlockQuicSwitch" Header="block QUIC (UDP 443)" Toggled="Settings_Changed" />
                         <ToggleSwitch x:Name="PlatformTransportSwitch" Header="server connection on the VPN transport"
