@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	stdnet "net"
 	"os"
 	"strings"
 	"sync"
@@ -39,6 +40,7 @@ type stats struct {
 	samples   []string // first packets from the plug-in, decoded
 	flows     []string // the last finished TCP connections
 	open      map[*flow]struct{}
+	lookups   []string // the last DNS lookups apps made, with answers
 }
 
 const maxFlows = 20
@@ -82,6 +84,25 @@ func (c *countingWriter) Write(p []byte) (int, error) {
 		first.Store(max(1, time.Since(c.f.start).Milliseconds()))
 	}
 	return n, err
+}
+
+// dnsLookup records an app's DNS lookup as a "dns:" line.
+func (s *stats) dnsLookup(name string, qtype uint16, ips []stdnet.IP, err error, d time.Duration) {
+	kind := "A"
+	if qtype == dnsTypeAAAA {
+		kind = "AAAA"
+	}
+	answer := fmt.Sprint(ips)
+	if err != nil {
+		answer = "error " + err.Error()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lookups = append(s.lookups, fmt.Sprintf("%s %s %s -> %s (%d ms)",
+		time.Now().Format("15:04:05"), name, kind, answer, d.Milliseconds()))
+	if len(s.lookups) > maxFlows {
+		s.lookups = s.lookups[len(s.lookups)-maxFlows:]
+	}
 }
 
 // flowOpened starts tracking a TCP connection; its live counters are listed
@@ -152,6 +173,9 @@ func (s *stats) String() string {
 	}
 	for _, f := range s.flows {
 		line += "\nflow: " + f
+	}
+	for _, l := range s.lookups {
+		line += "\ndns: " + l
 	}
 	n := 0
 	for f := range s.open {

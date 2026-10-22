@@ -7,6 +7,7 @@ import (
 	"io"
 	stdnet "net"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -429,8 +430,12 @@ func (b *bridge) serveDNS(local *gonet.UDPConn) {
 			resp, err := b.resolve(q)
 			if err != nil {
 				b.stats.dohFailed(err)
+			}
+			if resp == nil {
 				return
 			}
+			// Failures are answered too (NXDOMAIN / SERVFAIL): without a reply
+			// Windows waits for its own timeout before the page shows an error.
 			b.stats.dnsAnswers.Add(1)
 			_, _ = local.Write(resp)
 		}()
@@ -450,12 +455,18 @@ func (b *bridge) resolve(q []byte) ([]byte, error) {
 		return dnsResponse(q, end, qtype, nil, 0, 0), nil // NODATA for HTTPS/SVCB/MX/...
 	}
 	option := dns.IPOption{IPv4Enable: qtype == dnsTypeA, IPv6Enable: qtype == dnsTypeAAAA}
+	start := time.Now()
 	ips, ttl, err := b.resolver.LookupIP(name, option)
+	b.stats.dnsLookup(name, qtype, ips, err, time.Since(start))
 	if err != nil {
 		if stderrors.Is(err, dns.ErrEmptyResponse) {
 			return dnsResponse(q, end, qtype, nil, 60, 0), nil
 		}
-		return dnsResponse(q, end, qtype, nil, 0, 3), err // NXDOMAIN-ish, but report the error
+		rcode := byte(2) // SERVFAIL: the lookup itself failed
+		if strings.Contains(err.Error(), "rcode: 3") {
+			rcode = 3 // NXDOMAIN
+		}
+		return dnsResponse(q, end, qtype, nil, 0, rcode), err
 	}
 	if ttl == 0 || ttl > 600 {
 		ttl = 300
