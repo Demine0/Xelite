@@ -25,6 +25,18 @@ jobs:
           if (-not $icd) { throw "icd.exe not found after installing the ADK" }
           "ICD=$($icd.FullName)" | Out-File -Append $env:GITHUB_ENV
           $icd.FullName
+      - name: Search the settings store for network isolation
+        shell: pwsh
+        run: |
+          $dir = Split-Path $env:ICD
+          Get-ChildItem $dir -Recurse -Include *.dat,*.xml -ErrorAction SilentlyContinue | ForEach-Object { "$($_.FullName) $($_.Length)" }
+          foreach ($f in Get-ChildItem $dir -Recurse -Include *.dat -ErrorAction SilentlyContinue) {
+            $text = [IO.File]::ReadAllText($f.FullName, [Text.Encoding]::Unicode) + [IO.File]::ReadAllText($f.FullName, [Text.Encoding]::UTF8)
+            foreach ($word in "NetworkIsolation", "EnterpriseIPRange", "PrivateSubnet", "SyncML", "OMA-URI", "CustomPolicies") {
+              $n = ([regex]::Matches($text, $word)).Count
+              if ($n) { "$($f.Name): $word x$n" }
+            }
+          }
       - name: Build the provisioning package
         shell: pwsh
         run: |
